@@ -1,14 +1,33 @@
 const GEMINI_URL =
   "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent";
 
-export async function callGemini(apiKey, prompt, retries = 2) {
+/**
+ * Call Gemini with text prompt + optional image parts.
+ * @param {string} apiKey
+ * @param {string} prompt - text prompt
+ * @param {Array<{mimeType: string, data: string}>} images - base64 image parts
+ * @param {number} retries
+ */
+export async function callGemini(apiKey, prompt, images = [], retries = 2) {
+  const parts = [{ text: prompt }];
+
+  // Add images as inline_data parts (Gemini multimodal)
+  for (const img of images) {
+    parts.push({
+      inline_data: {
+        mime_type: img.mimeType,
+        data: img.data,
+      },
+    });
+  }
+
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       const res = await fetch(`${GEMINI_URL}?key=${apiKey}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
+          contents: [{ parts }],
           generationConfig: {
             temperature: 0.7,
             maxOutputTokens: 4096,
@@ -18,7 +37,6 @@ export async function callGemini(apiKey, prompt, retries = 2) {
       });
 
       if (res.status === 429) {
-        // Rate limited — wait and retry
         await sleep(2000 * (attempt + 1));
         continue;
       }
@@ -46,9 +64,16 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-export function buildTopicPrompt(topicName, moduleName, courseName, depth) {
+/**
+ * Build topic prompt with optional reference material context.
+ */
+export function buildTopicPrompt(topicName, moduleName, courseName, depth, referenceText = "") {
   const wordRange = depth === "brief" ? "200-350" : "400-700";
-  return `You are an expert educator. Generate comprehensive study content for the topic "${topicName}" under the module "${moduleName}" in the course "${courseName}".
+  const contextBlock = referenceText
+    ? `\n\nIMPORTANT: The student has provided class notes and reference material below. Use this content as the PRIMARY source for generating the study material. Extract key concepts, definitions, examples, and explanations from these notes. Supplement with your knowledge only where the notes are incomplete.\n\n--- STUDENT'S REFERENCE MATERIAL ---\n${referenceText}\n--- END REFERENCE MATERIAL ---\n`
+    : "";
+
+  return `You are an expert educator. Generate comprehensive study content for the topic "${topicName}" under the module "${moduleName}" in the course "${courseName}".${contextBlock}
 
 Return ONLY valid JSON with this exact structure:
 {
@@ -77,9 +102,13 @@ Return ONLY valid JSON with this exact structure:
 }`;
 }
 
-export function buildModulePrompt(moduleName, topics, courseName) {
+export function buildModulePrompt(moduleName, topics, courseName, referenceText = "") {
+  const contextBlock = referenceText
+    ? `\n\nReference material from student's notes:\n${referenceText.slice(0, 3000)}\n`
+    : "";
+
   return `You are an expert educator. Generate module-level metadata for the module "${moduleName}" in the course "${courseName}".
-Topics in this module: ${topics.join(", ")}
+Topics in this module: ${topics.join(", ")}${contextBlock}
 
 Return ONLY valid JSON:
 {
