@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 import "./globals.css";
-import { callGemini, buildTopicPrompt, buildModulePrompt, buildGlossaryPrompt } from "./lib/gemini";
+import { callGemini, buildTopicPrompt, buildModulePrompt, buildGlossaryPrompt, buildRoutePrompt } from "./lib/gemini";
 import { slugify, assembleMarkdown } from "./lib/markdown";
 import { processFiles, getFileIcon, formatFileSize } from "./lib/files";
 
@@ -15,8 +15,8 @@ function PlusIcon({ size = 12 }) {
 function KeyIcon() {
   return (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" /></svg>);
 }
-function UploadIcon() {
-  return (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" /></svg>);
+function UploadIcon({ size = 14 }) {
+  return (<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" /></svg>);
 }
 
 let nextModuleId = 0;
@@ -28,16 +28,19 @@ export default function Home() {
   const [keySaved, setKeySaved] = useState(false);
   const [courseName, setCourseName] = useState("");
   const [depth, setDepth] = useState("detailed");
+  const [globalFiles, setGlobalFiles] = useState([]);
+  const [dragOver, setDragOver] = useState(false);
   const [modules, setModules] = useState(() => {
     const mId = ++nextModuleId;
     const tId = ++nextTopicId;
-    return [{ id: mId, name: "", topics: [{ id: tId, name: "" }], files: [] }];
+    return [{ id: mId, name: "", topics: [{ id: tId, name: "" }] }];
   });
   const [output, setOutput] = useState("");
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState("");
   const [toast, setToast] = useState("");
   const outputRef = useRef(null);
+  const fileInputRef = useRef(null);
 
   useEffect(() => {
     const saved = localStorage.getItem("eclipse-theory-api-key");
@@ -59,9 +62,10 @@ export default function Home() {
     setApiKey(""); setKeySaved(false); showToast("API key removed");
   };
 
+  // Module/topic CRUD
   const addModule = () => {
     const mId = ++nextModuleId; const tId = ++nextTopicId;
-    setModules((p) => [...p, { id: mId, name: "", topics: [{ id: tId, name: "" }], files: [] }]);
+    setModules((p) => [...p, { id: mId, name: "", topics: [{ id: tId, name: "" }] }]);
   };
   const removeModule = (mId) => setModules((p) => p.filter((m) => m.id !== mId));
   const updateModuleName = (mId, name) => setModules((p) => p.map((m) => m.id === mId ? { ...m, name } : m));
@@ -72,11 +76,18 @@ export default function Home() {
   const removeTopic = (mId, tId) => setModules((p) => p.map((m) => m.id === mId ? { ...m, topics: m.topics.filter((t) => t.id !== tId) } : m));
   const updateTopicName = (mId, tId, name) => setModules((p) => p.map((m) => m.id === mId ? { ...m, topics: m.topics.map((t) => t.id === tId ? { ...t, name } : t) } : m));
 
-  const addFiles = (mId, newFiles) => {
-    setModules((p) => p.map((m) => m.id === mId ? { ...m, files: [...m.files, ...Array.from(newFiles)] } : m));
+  // Global file management
+  const handleGlobalFiles = (files) => {
+    if (files && files.length > 0) {
+      setGlobalFiles((prev) => [...prev, ...Array.from(files)]);
+      showToast(`${files.length} file${files.length > 1 ? "s" : ""} added`);
+    }
   };
-  const removeFile = (mId, fileIdx) => {
-    setModules((p) => p.map((m) => m.id === mId ? { ...m, files: m.files.filter((_, i) => i !== fileIdx) } : m));
+  const removeGlobalFile = (idx) => setGlobalFiles((prev) => prev.filter((_, i) => i !== idx));
+
+  const handleDrop = (e) => {
+    e.preventDefault(); setDragOver(false);
+    handleGlobalFiles(e.dataTransfer.files);
   };
 
   const handleSubmit = async (e) => {
@@ -87,41 +98,61 @@ export default function Home() {
 
     const validModules = modules
       .filter((m) => m.name.trim())
-      .map((m) => ({
-        name: m.name.trim(),
-        topics: m.topics.filter((t) => t.name.trim()).map((t) => t.name.trim()),
-        files: m.files || [],
-      }))
+      .map((m) => ({ name: m.name.trim(), topics: m.topics.filter((t) => t.name.trim()).map((t) => t.name.trim()) }))
       .filter((m) => m.topics.length > 0);
 
     if (!validModules.length) { showToast("Add at least one module with topics"); return; }
 
     const totalTopics = validModules.reduce((s, m) => s + m.topics.length, 0);
-    const totalFiles = validModules.reduce((s, m) => s + m.files.length, 0);
     setLoading(true); setOutput("");
 
     try {
-      // Phase 0: Process uploaded files per module
-      const moduleContexts = [];
-      if (totalFiles > 0) {
-        setProgress(`Processing ${totalFiles} uploaded file${totalFiles > 1 ? "s" : ""}...`);
-      }
-      for (const m of validModules) {
-        if (m.files.length > 0) {
-          const processed = await processFiles(m.files);
-          moduleContexts.push(processed);
-        } else {
-          moduleContexts.push({ text: "", images: [] });
+      // Phase 0: Process all global files
+      let globalContext = { text: "", images: [] };
+      let moduleContextMap = {};
+
+      if (globalFiles.length > 0) {
+        setProgress(`Processing ${globalFiles.length} uploaded file${globalFiles.length > 1 ? "s" : ""}...`);
+        globalContext = await processFiles(globalFiles);
+
+        // Route content to modules using Gemini
+        if (globalContext.text && validModules.length > 1) {
+          setProgress("Analyzing notes and routing to modules...");
+          const routeResult = await callGemini(
+            key,
+            buildRoutePrompt(validModules, globalContext.text),
+            globalContext.images
+          );
+
+          if (routeResult?.mapping) {
+            for (const entry of routeResult.mapping) {
+              const mi = entry.moduleIndex;
+              if (mi >= 0 && mi < validModules.length && entry.relevantContent) {
+                moduleContextMap[mi] = {
+                  text: entry.relevantContent,
+                  images: globalContext.images, // images go to all modules
+                };
+              }
+            }
+          }
+        }
+
+        // Fallback: if routing failed or single module, give everything to all
+        if (Object.keys(moduleContextMap).length === 0) {
+          for (let i = 0; i < validModules.length; i++) {
+            moduleContextMap[i] = globalContext;
+          }
         }
       }
 
       // Phase 1: Module metadata
       setProgress(`Generating module overviews (${validModules.length})...`);
       const moduleMetas = await Promise.all(
-        validModules.map((m, mi) =>
-          callGemini(key, buildModulePrompt(m.name, m.topics, courseName.trim(), moduleContexts[mi].text), moduleContexts[mi].images)
-            .then((r) => r || { overview: "", objectives: [], estimatedHours: 0, difficulty: "Medium", prerequisites: "None" })
-        )
+        validModules.map((m, mi) => {
+          const ctx = moduleContextMap[mi] || { text: "", images: [] };
+          return callGemini(key, buildModulePrompt(m.name, m.topics, courseName.trim(), ctx.text), ctx.images)
+            .then((r) => r || { overview: "", objectives: [], estimatedHours: 0, difficulty: "Medium", prerequisites: "None" });
+        })
       );
 
       // Phase 2: Topics in batches of 3
@@ -136,12 +167,8 @@ export default function Home() {
         const batch = allTopicJobs.slice(i, i + BATCH_SIZE);
         const results = await Promise.all(
           batch.map((job) => {
-            const ctx = moduleContexts[job.mi];
-            return callGemini(
-              key,
-              buildTopicPrompt(job.topicName, job.moduleName, courseName.trim(), depth, ctx.text),
-              ctx.images
-            );
+            const ctx = moduleContextMap[job.mi] || { text: "", images: [] };
+            return callGemini(key, buildTopicPrompt(job.topicName, job.moduleName, courseName.trim(), depth, ctx.text), ctx.images);
           })
         );
         batch.forEach((job, idx) => { topicDataMap[`${job.mi}-${job.ti}`] = results[idx]; });
@@ -176,7 +203,6 @@ export default function Home() {
     const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([output], { type: "text/markdown" }));
     a.download = fn; a.click(); URL.revokeObjectURL(a.href); showToast("Downloaded " + fn);
   };
-
   const downloadPdf = async () => {
     setProgress("Generating PDF...");
     try {
@@ -186,7 +212,6 @@ export default function Home() {
       const mL = 18, mR = 18, mT = 22, mB = 20, cW = pageW - mL - mR;
       let y = mT;
       const check = (n = 10) => { if (y + n > pageH - mB) { doc.addPage(); y = mT; } };
-
       for (const line of output.split("\n")) {
         const t = line.trimEnd();
         if (t.startsWith("# 📘") || t.startsWith("# 🧩") || t.startsWith("# 📚")) {
@@ -267,7 +292,7 @@ export default function Home() {
 
       <section className="hero">
         <h1>Generate <span className="highlight">Master Learning</span> Documents</h1>
-        <p>Input your modules and topics, upload class notes — AI generates a complete study document from your material.</p>
+        <p>Upload your class notes, define modules and topics — AI reads your material and generates a complete study document.</p>
         <div className="hero-pills">
           <span className="pill"><span className="pill-dot" /> AI-powered</span>
           <span className="pill"><span className="pill-dot" /> Upload notes</span>
@@ -295,8 +320,67 @@ export default function Home() {
                 </select>
               </div>
             </div>
+
+            {/* GLOBAL FILE UPLOAD */}
             <div className="field">
-              <label>Modules & Topics <span className="required">*</span><span className="hint">Add modules, topics, and optionally upload class notes per module</span></label>
+              <label>Reference Material <span className="hint">— upload class notes, slides, PDFs, images (optional)</span></label>
+              <div
+                className={`upload-zone ${dragOver ? "drag-over" : ""} ${globalFiles.length > 0 ? "has-files" : ""}`}
+                onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={handleDrop}
+                onClick={() => fileInputRef.current?.click()}
+                role="button"
+                tabIndex={0}
+                aria-label="Upload reference files"
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") fileInputRef.current?.click(); }}
+              >
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  accept="*/*"
+                  style={{ display: "none" }}
+                  onChange={(e) => { handleGlobalFiles(e.target.files); e.target.value = ""; }}
+                />
+                {globalFiles.length === 0 ? (
+                  <div className="upload-zone-empty">
+                    <UploadIcon size={20} />
+                    <span>Drop files here or click to browse</span>
+                    <span className="upload-zone-hint">PDF, PPT, DOC, images, text files</span>
+                  </div>
+                ) : (
+                  <div className="upload-zone-files" onClick={(e) => e.stopPropagation()}>
+                    <div className="upload-zone-header">
+                      <span className="upload-zone-count">{globalFiles.length} file{globalFiles.length > 1 ? "s" : ""} uploaded</span>
+                      <label className="btn-add-more" onClick={(e) => e.stopPropagation()}>
+                        <PlusIcon /> Add more
+                        <input
+                          type="file"
+                          multiple
+                          accept="*/*"
+                          style={{ display: "none" }}
+                          onChange={(e) => { handleGlobalFiles(e.target.files); e.target.value = ""; }}
+                        />
+                      </label>
+                    </div>
+                    <div className="file-list">
+                      {globalFiles.map((file, fi) => (
+                        <div className="file-chip" key={fi}>
+                          <span className="file-type-badge">{getFileIcon(file)}</span>
+                          <span className="file-name">{file.name}</span>
+                          <span className="file-size">{formatFileSize(file.size)}</span>
+                          <button type="button" className="file-remove" onClick={(e) => { e.stopPropagation(); removeGlobalFile(fi); }} aria-label={`Remove ${file.name}`}><XIcon /></button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="field">
+              <label>Modules & Topics <span className="required">*</span><span className="hint">AI will match your uploaded notes to each module automatically</span></label>
               <div className="modules-wrap">
                 {modules.length === 0 && <div className="empty-state">No modules yet. Click below to add one.</div>}
                 {modules.map((mod, mi) => (
@@ -320,29 +404,7 @@ export default function Home() {
                       </div>
                       <div className="module-actions">
                         <button type="button" className="btn-add" onClick={() => addTopic(mod.id)}><PlusIcon /> Add Topic</button>
-                        <label className="btn-upload" aria-label="Upload class notes">
-                          <UploadIcon /> Upload Notes
-                          <input
-                            type="file"
-                            multiple
-                            accept="*/*"
-                            style={{ display: "none" }}
-                            onChange={(e) => { if (e.target.files && e.target.files.length > 0) addFiles(mod.id, e.target.files); e.target.value = ""; }}
-                          />
-                        </label>
                       </div>
-                      {mod.files.length > 0 && (
-                        <div className="file-list">
-                          {mod.files.map((file, fi) => (
-                            <div className="file-chip" key={fi}>
-                              <span className="file-type-badge">{getFileIcon(file)}</span>
-                              <span className="file-name">{file.name}</span>
-                              <span className="file-size">{formatFileSize(file.size)}</span>
-                              <button type="button" className="file-remove" onClick={() => removeFile(mod.id, fi)} aria-label={`Remove ${file.name}`}><XIcon /></button>
-                            </div>
-                          ))}
-                        </div>
-                      )}
                     </div>
                   </div>
                 ))}

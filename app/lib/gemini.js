@@ -128,3 +128,39 @@ Return ONLY valid JSON:
   "terms": [{"term": "name", "definition": "clear definition", "firstSeen": "Module X, Topic Y"}]
 }`;
 }
+
+/**
+ * Route extracted text content to the correct modules.
+ * Gemini reads the content and assigns relevant sections to each module.
+ */
+export function buildRoutePrompt(modules, extractedText) {
+  const moduleList = modules.map((m, i) =>
+    `  ${i}: "${m.name}" (topics: ${m.topics.join(", ")})`
+  ).join("\n");
+
+  return `You are a content routing assistant. Below is text extracted from a student's uploaded class notes/slides. You also have a list of modules with their topics.
+
+Your job: read the extracted text and assign the RELEVANT portions to each module. Extract only the content that matches each module's topics.
+
+MODULES:
+${moduleList}
+
+EXTRACTED TEXT:
+${extractedText.slice(0, 15000)}
+
+Return ONLY valid JSON:
+{
+  "mapping": [
+    {
+      "moduleIndex": 0,
+      "relevantContent": "The extracted text portions relevant to this module's topics. Include definitions, explanations, examples, formulas, key points found in the notes."
+    }
+  ]
+}
+
+Rules:
+- Include an entry for EVERY module (even if relevantContent is empty string)
+- Copy relevant text verbatim where possible — don't summarize
+- If content applies to multiple modules, include it in all relevant ones
+- moduleIndex must match the index numbers above (0-based)`;
+}
