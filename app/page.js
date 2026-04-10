@@ -2,6 +2,13 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 import "./globals.css";
+import {
+  callGemini,
+  buildTopicPrompt,
+  buildModulePrompt,
+  buildGlossaryPrompt,
+} from "./lib/gemini";
+import { slugify, assembleMarkdown } from "./lib/markdown";
 
 function XIcon() {
   return (
@@ -11,7 +18,6 @@ function XIcon() {
     </svg>
   );
 }
-
 function PlusIcon({ size = 12 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
@@ -20,17 +26,12 @@ function PlusIcon({ size = 12 }) {
     </svg>
   );
 }
-
 function KeyIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
     </svg>
   );
-}
-
-function slugify(str) {
-  return str.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 }
 
 let nextModuleId = 0;
@@ -83,21 +84,19 @@ export default function Home() {
     const tId = ++nextTopicId;
     setModules((prev) => [...prev, { id: mId, name: "", topics: [{ id: tId, name: "" }] }]);
   };
-
   const removeModule = (mId) => setModules((prev) => prev.filter((m) => m.id !== mId));
   const updateModuleName = (mId, name) => setModules((prev) => prev.map((m) => (m.id === mId ? { ...m, name } : m)));
-
   const addTopic = (mId) => {
     const tId = ++nextTopicId;
     setModules((prev) => prev.map((m) => m.id === mId ? { ...m, topics: [...m.topics, { id: tId, name: "" }] } : m));
   };
-
   const removeTopic = (mId, tId) => setModules((prev) => prev.map((m) => m.id === mId ? { ...m, topics: m.topics.filter((t) => t.id !== tId) } : m));
   const updateTopicName = (mId, tId, name) => setModules((prev) => prev.map((m) => m.id === mId ? { ...m, topics: m.topics.map((t) => (t.id === tId ? { ...t, name } : t)) } : m));
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!apiKey.trim()) { setShowKeyInput(true); showToast("Please add your Gemini API key first"); return; }
+    const key = apiKey.trim();
+    if (!key) { setShowKeyInput(true); showToast("Please add your Gemini API key first"); return; }
     if (!courseName.trim()) { showToast("Please enter a course name"); return; }
 
     const validModules = modules
@@ -110,21 +109,68 @@ export default function Home() {
     const totalTopics = validModules.reduce((s, m) => s + m.topics.length, 0);
     setLoading(true);
     setOutput("");
-    setProgress(`Generating content for ${totalTopics} topic${totalTopics > 1 ? "s" : ""} via Gemini AI...`);
 
     try {
-      const res = await fetch("/api/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ courseName: courseName.trim(), depth, modules: validModules, apiKey: apiKey.trim() }),
+      // Phase 1: Module metadata (parallel, small calls)
+      setProgress(`Generating module overviews (${validModules.length})...`);
+      const moduleMetas = await Promise.all(
+        validModules.map((m) =>
+          callGemini(key, buildModulePrompt(m.name, m.topics, courseName.trim()))
+            .then((r) => r || { overview: "", objectives: [], estimatedHours: 0, difficulty: "Medium", prerequisites: "None" })
+        )
+      );
+
+      // Phase 2: Topics — process in batches of 3 to avoid rate limits
+      const topicDataMap = {};
+      let completed = 0;
+      const BATCH_SIZE = 3;
+
+      const allTopicJobs = validModules.flatMap((m, mi) =>
+        m.topics.map((t, ti) => ({ mi, ti, topicName: t, moduleName: m.name }))
+      );
+
+      for (let i = 0; i < allTopicJobs.length; i += BATCH_SIZE) {
+        const batch = allTopicJobs.slice(i, i + BATCH_SIZE);
+        const results = await Promise.all(
+          batch.map((job) =>
+            callGemini(key, buildTopicPrompt(job.topicName, job.moduleName, courseName.trim(), depth))
+          )
+        );
+        batch.forEach((job, idx) => {
+          topicDataMap[`${job.mi}-${job.ti}`] = results[idx];
+        });
+        completed += batch.length;
+        setProgress(`Generating topics... ${completed}/${totalTopics}`);
+
+        // Small delay between batches to avoid rate limiting
+        if (i + BATCH_SIZE < allTopicJobs.length) {
+          await new Promise((r) => setTimeout(r, 500));
+        }
+      }
+
+      // Phase 3: Glossary
+      setProgress("Generating glossary...");
+      const allTopicNames = validModules.flatMap((m) => m.topics);
+      const glossaryData = await callGemini(key, buildGlossaryPrompt(courseName.trim(), allTopicNames))
+        .then((r) => r || { terms: [] });
+
+      // Phase 4: Assemble
+      setProgress("Assembling document...");
+      const md = assembleMarkdown({
+        courseName: courseName.trim(),
+        depth,
+        modules: validModules,
+        moduleMetas,
+        topicDataMap,
+        glossaryData,
       });
-      const data = await res.json();
-      if (!res.ok) { showToast(data.error || "Generation failed"); return; }
-      setOutput(data.markdown);
+
+      setOutput(md);
       showToast("Document generated successfully");
       setTimeout(() => outputRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
-    } catch {
-      showToast("Network error — please try again");
+    } catch (err) {
+      console.error(err);
+      showToast(err.message || "Generation failed");
     } finally {
       setLoading(false);
       setProgress("");
@@ -152,123 +198,74 @@ export default function Home() {
     try {
       const { jsPDF } = await import("jspdf");
       const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-
       const pageW = doc.internal.pageSize.getWidth();
       const pageH = doc.internal.pageSize.getHeight();
-      const marginL = 18;
-      const marginR = 18;
-      const marginTop = 22;
-      const marginBot = 20;
-      const contentW = pageW - marginL - marginR;
-      let y = marginTop;
+      const mL = 18, mR = 18, mT = 22, mB = 20;
+      const cW = pageW - mL - mR;
+      let y = mT;
 
-      const checkPage = (needed = 10) => {
-        if (y + needed > pageH - marginBot) {
-          doc.addPage();
-          y = marginTop;
-          return true;
-        }
-        return false;
-      };
-
+      const check = (n = 10) => { if (y + n > pageH - mB) { doc.addPage(); y = mT; } };
       const lines = output.split("\n");
 
       for (const line of lines) {
-        const trimmed = line.trimEnd();
-
-        if (trimmed.startsWith("# 📘") || trimmed.startsWith("# 🧩") || trimmed.startsWith("# 📚")) {
-          checkPage(20);
-          doc.setFont("helvetica", "bold");
-          doc.setFontSize(16);
-          doc.setTextColor(23, 23, 23);
-          const text = trimmed.replace(/^#+\s*/, "").replace(/[📘🧩📚📑🔹📖🖼️💡🔑🎯✅❌🔗📝📋🏋️]/g, "").trim();
-          const split = doc.splitTextToSize(text, contentW);
-          checkPage(split.length * 7);
-          doc.text(split, marginL, y);
-          y += split.length * 7 + 4;
-        } else if (trimmed.startsWith("## ")) {
-          checkPage(16);
-          doc.setFont("helvetica", "bold");
-          doc.setFontSize(13);
-          doc.setTextColor(23, 23, 23);
-          const text = trimmed.replace(/^#+\s*/, "").replace(/[📘🧩📚📑🔹📖🖼️💡🔑🎯✅❌🔗📝📋🏋️]/g, "").trim();
-          const split = doc.splitTextToSize(text, contentW);
-          checkPage(split.length * 6);
-          doc.text(split, marginL, y);
-          y += split.length * 6 + 3;
-        } else if (trimmed.startsWith("### ") || trimmed.startsWith("#### ")) {
-          checkPage(12);
-          doc.setFont("helvetica", "bold");
-          doc.setFontSize(11);
-          doc.setTextColor(64, 64, 64);
-          const text = trimmed.replace(/^#+\s*/, "").replace(/[📘🧩📚📑🔹📖🖼️💡🔑🎯✅❌🔗📝📋🏋️🔸]/g, "").trim();
-          const split = doc.splitTextToSize(text, contentW);
-          checkPage(split.length * 5);
-          doc.text(split, marginL, y);
-          y += split.length * 5 + 2;
-        } else if (trimmed.startsWith("---")) {
-          checkPage(6);
-          doc.setDrawColor(229, 229, 229);
-          doc.setLineWidth(0.3);
-          doc.line(marginL, y, pageW - marginR, y);
-          y += 4;
-        } else if (trimmed.startsWith("> ")) {
-          checkPage(10);
-          doc.setFont("helvetica", "italic");
-          doc.setFontSize(9);
-          doc.setTextColor(82, 82, 82);
-          const text = trimmed.replace(/^>\s*/, "").replace(/\*\*/g, "");
-          const split = doc.splitTextToSize(text, contentW - 6);
-          checkPage(split.length * 4.5);
+        const t = line.trimEnd();
+        if (t.startsWith("# 📘") || t.startsWith("# 🧩") || t.startsWith("# 📚")) {
+          check(20);
+          doc.setFont("helvetica", "bold").setFontSize(16).setTextColor(23, 23, 23);
+          const txt = t.replace(/^#+\s*/, "").replace(/[📘🧩📚📑🔹📖🖼️💡🔑🎯✅❌🔗📝📋🏋️]/g, "").trim();
+          const sp = doc.splitTextToSize(txt, cW); check(sp.length * 7);
+          doc.text(sp, mL, y); y += sp.length * 7 + 4;
+        } else if (t.startsWith("## ")) {
+          check(16);
+          doc.setFont("helvetica", "bold").setFontSize(13).setTextColor(23, 23, 23);
+          const txt = t.replace(/^#+\s*/, "").replace(/[📘🧩📚📑🔹📖🖼️💡🔑🎯✅❌🔗📝📋🏋️]/g, "").trim();
+          const sp = doc.splitTextToSize(txt, cW); check(sp.length * 6);
+          doc.text(sp, mL, y); y += sp.length * 6 + 3;
+        } else if (t.startsWith("### ") || t.startsWith("#### ")) {
+          check(12);
+          doc.setFont("helvetica", "bold").setFontSize(11).setTextColor(64, 64, 64);
+          const txt = t.replace(/^#+\s*/, "").replace(/[📘🧩📚📑🔹📖🖼️💡🔑🎯✅❌🔗📝📋🏋️🔸]/g, "").trim();
+          const sp = doc.splitTextToSize(txt, cW); check(sp.length * 5);
+          doc.text(sp, mL, y); y += sp.length * 5 + 2;
+        } else if (t.startsWith("---")) {
+          check(6); doc.setDrawColor(229, 229, 229).setLineWidth(0.3);
+          doc.line(mL, y, pageW - mR, y); y += 4;
+        } else if (t.startsWith("> ")) {
+          check(10);
+          doc.setFont("helvetica", "italic").setFontSize(9).setTextColor(82, 82, 82);
+          const txt = t.replace(/^>\s*/, "").replace(/\*\*/g, "");
+          const sp = doc.splitTextToSize(txt, cW - 6); check(sp.length * 4.5);
           doc.setFillColor(250, 250, 250);
-          doc.rect(marginL, y - 3, contentW, split.length * 4.5 + 4, "F");
-          doc.text(split, marginL + 3, y);
-          y += split.length * 4.5 + 3;
-        } else if (trimmed.startsWith("| ") && trimmed.includes("|")) {
-          if (trimmed.match(/^\|[\s-|]+\|$/)) continue;
-          checkPage(8);
-          doc.setFont("helvetica", "normal");
-          doc.setFontSize(8);
-          doc.setTextColor(64, 64, 64);
-          const cells = trimmed.split("|").filter(Boolean).map((c) => c.trim());
-          const text = cells.join("  |  ");
-          const split = doc.splitTextToSize(text, contentW);
-          checkPage(split.length * 4);
-          doc.text(split, marginL, y);
-          y += split.length * 4 + 1;
-        } else if (trimmed.startsWith("```")) {
-          checkPage(6);
-          doc.setFont("courier", "normal");
-          doc.setFontSize(8);
-          doc.setTextColor(82, 82, 82);
+          doc.rect(mL, y - 3, cW, sp.length * 4.5 + 4, "F");
+          doc.text(sp, mL + 3, y); y += sp.length * 4.5 + 3;
+        } else if (t.startsWith("| ") && t.includes("|")) {
+          if (t.match(/^\|[\s-|]+\|$/)) continue;
+          check(8);
+          doc.setFont("helvetica", "normal").setFontSize(8).setTextColor(64, 64, 64);
+          const cells = t.split("|").filter(Boolean).map((c) => c.trim());
+          const txt = cells.join("  |  ");
+          const sp = doc.splitTextToSize(txt, cW); check(sp.length * 4);
+          doc.text(sp, mL, y); y += sp.length * 4 + 1;
+        } else if (t.startsWith("```")) {
           continue;
-        } else if (trimmed.match(/^\d+\.\s/) || trimmed.startsWith("- ")) {
-          checkPage(8);
-          doc.setFont("helvetica", "normal");
-          doc.setFontSize(9.5);
-          doc.setTextColor(40, 40, 40);
-          const text = trimmed.replace(/\*\*/g, "").replace(/[❌✅]/g, "").trim();
-          const split = doc.splitTextToSize(text, contentW - 6);
-          checkPage(split.length * 4.5);
-          doc.text(split, marginL + 4, y);
-          y += split.length * 4.5 + 1;
-        } else if (trimmed.length > 0) {
-          checkPage(8);
-          doc.setFont("helvetica", "normal");
-          doc.setFontSize(9.5);
-          doc.setTextColor(40, 40, 40);
-          const text = trimmed.replace(/\*\*/g, "").replace(/_/g, "");
-          const split = doc.splitTextToSize(text, contentW);
-          checkPage(split.length * 4.5);
-          doc.text(split, marginL, y);
-          y += split.length * 4.5 + 1;
+        } else if (t.match(/^\d+\.\s/) || t.startsWith("- ")) {
+          check(8);
+          doc.setFont("helvetica", "normal").setFontSize(9.5).setTextColor(40, 40, 40);
+          const txt = t.replace(/\*\*/g, "").replace(/[❌✅]/g, "").trim();
+          const sp = doc.splitTextToSize(txt, cW - 6); check(sp.length * 4.5);
+          doc.text(sp, mL + 4, y); y += sp.length * 4.5 + 1;
+        } else if (t.length > 0) {
+          check(8);
+          doc.setFont("helvetica", "normal").setFontSize(9.5).setTextColor(40, 40, 40);
+          const txt = t.replace(/\*\*/g, "").replace(/_/g, "");
+          const sp = doc.splitTextToSize(txt, cW); check(sp.length * 4.5);
+          doc.text(sp, mL, y); y += sp.length * 4.5 + 1;
         } else {
           y += 2;
         }
       }
 
-      const filename = slugify(courseName || "document") + "-master-learning-doc.pdf";
-      doc.save(filename);
+      doc.save(slugify(courseName || "document") + "-master-learning-doc.pdf");
       showToast("PDF downloaded");
     } catch (err) {
       console.error(err);
@@ -293,13 +290,9 @@ export default function Home() {
           </div>
           <div className="nav-right">
             {keySaved && !showKeyInput ? (
-              <button className="api-key-btn saved" onClick={() => setShowKeyInput(true)} aria-label="API key settings">
-                <KeyIcon /> API Key ✓
-              </button>
+              <button className="api-key-btn saved" onClick={() => setShowKeyInput(true)}><KeyIcon /> API Key ✓</button>
             ) : (
-              <button className="api-key-btn" onClick={() => setShowKeyInput(!showKeyInput)} aria-label="Add API key">
-                <KeyIcon /> {showKeyInput ? "Close" : "API Key"}
-              </button>
+              <button className="api-key-btn" onClick={() => setShowKeyInput(!showKeyInput)}><KeyIcon /> {showKeyInput ? "Close" : "API Key"}</button>
             )}
           </div>
         </div>
@@ -308,23 +301,11 @@ export default function Home() {
             <div className="api-key-panel-inner">
               <label htmlFor="apiKeyInput">Gemini API Key <span className="hint">— stored locally in your browser</span></label>
               <div className="api-key-row">
-                <input
-                  type="password"
-                  id="apiKeyInput"
-                  placeholder="AIzaSy..."
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  autoComplete="off"
-                />
+                <input type="password" id="apiKeyInput" placeholder="AIzaSy..." value={apiKey} onChange={(e) => setApiKey(e.target.value)} autoComplete="off" />
                 <button className="btn-save-key" onClick={saveApiKey}>Save</button>
                 {keySaved && <button className="btn-clear-key" onClick={clearApiKey}>Clear</button>}
               </div>
-              <p className="api-key-hint">
-                Get a free key at{" "}
-                <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">
-                  aistudio.google.com/apikey
-                </a>
-              </p>
+              <p className="api-key-hint">Get a free key at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">aistudio.google.com/apikey</a></p>
             </div>
           </div>
         )}
@@ -346,7 +327,6 @@ export default function Home() {
             <h2>Configure Document</h2>
             <span className="step-tag">Input</span>
           </div>
-
           <form onSubmit={handleSubmit} noValidate>
             <div className="row">
               <div className="field">
@@ -361,7 +341,6 @@ export default function Home() {
                 </select>
               </div>
             </div>
-
             <div className="field">
               <label>Modules & Topics <span className="required">*</span><span className="hint">Add modules, then topics inside each</span></label>
               <div className="modules-wrap">
@@ -373,9 +352,7 @@ export default function Home() {
                         <span className="module-num">{mi + 1}</span>
                         <input type="text" placeholder="Module name..." aria-label="Module name" value={mod.name} onChange={(e) => updateModuleName(mod.id, e.target.value)} />
                       </div>
-                      <button type="button" className="btn-remove-module" aria-label="Remove module" onClick={() => removeModule(mod.id)}>
-                        <XIcon /> Remove
-                      </button>
+                      <button type="button" className="btn-remove-module" onClick={() => removeModule(mod.id)}><XIcon /> Remove</button>
                     </div>
                     <div className="module-body">
                       <div className="topics-list">
@@ -383,22 +360,21 @@ export default function Home() {
                           <div className="topic-row" key={topic.id}>
                             <span className="topic-num">{mi + 1}.{ti + 1}</span>
                             <input type="text" placeholder="Topic name..." aria-label="Topic name" value={topic.name} onChange={(e) => updateTopicName(mod.id, topic.id, e.target.value)} />
-                            <button type="button" className="btn-remove" aria-label="Remove topic" onClick={() => removeTopic(mod.id, topic.id)}><XIcon /></button>
+                            <button type="button" className="btn-remove" onClick={() => removeTopic(mod.id, topic.id)}><XIcon /></button>
                           </div>
                         ))}
                       </div>
                       <div className="module-actions">
-                        <button type="button" className="btn-add" onClick={() => addTopic(mod.id)} aria-label="Add topic"><PlusIcon /> Add Topic</button>
+                        <button type="button" className="btn-add" onClick={() => addTopic(mod.id)}><PlusIcon /> Add Topic</button>
                       </div>
                     </div>
                   </div>
                 ))}
               </div>
               <div style={{ marginTop: 12 }}>
-                <button type="button" className="btn-add" onClick={addModule} aria-label="Add a new module"><PlusIcon /> Add Module</button>
+                <button type="button" className="btn-add" onClick={addModule}><PlusIcon /> Add Module</button>
               </div>
             </div>
-
             <button type="submit" className="btn-generate" disabled={loading}>
               {loading ? <><span className="spinner" /> {progress || "Generating..."}</> : "Generate Document"}
             </button>
@@ -407,7 +383,7 @@ export default function Home() {
       </section>
 
       {output && (
-        <section className="output-section visible" ref={outputRef} aria-live="polite">
+        <section className="output-section visible" ref={outputRef}>
           <div className="output-card">
             <div className="output-bar">
               <h2>
