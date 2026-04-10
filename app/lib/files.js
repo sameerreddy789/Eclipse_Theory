@@ -35,6 +35,30 @@ export async function processFiles(files) {
         // For PPTX/DOCX, extract what we can from the XML inside the zip
         const text = await extractOfficeText(file);
         if (text) textParts.push(`[${file.name}]\n${text}`);
+      } else if (
+        file.name.endsWith(".ppt") ||
+        file.name.endsWith(".doc") ||
+        file.type === "application/vnd.ms-powerpoint" ||
+        file.type === "application/msword"
+      ) {
+        // Legacy .ppt/.doc — try reading what we can as text
+        try {
+          const buf = await file.arrayBuffer();
+          const decoder = new TextDecoder("utf-8", { fatal: false });
+          const raw = decoder.decode(buf);
+          // Extract readable strings (filter out binary garbage)
+          const readable = raw
+            .split(/[\x00-\x08\x0E-\x1F]+/)
+            .filter((s) => s.trim().length > 3 && /[a-zA-Z]/.test(s))
+            .join(" ")
+            .replace(/\s+/g, " ")
+            .trim();
+          if (readable.length > 50) {
+            textParts.push(`[${file.name}]\n${readable.slice(0, 8000)}`);
+          }
+        } catch {
+          // Skip unreadable legacy files
+        }
       } else {
         // Try reading as text for unknown types
         try {
@@ -137,9 +161,9 @@ function fileToBase64(file) {
 export function getFileIcon(file) {
   if (file.type === "application/pdf") return "PDF";
   if (IMAGE_TYPES.includes(file.type)) return "IMG";
-  if (file.name.endsWith(".pptx") || file.name.endsWith(".ppt")) return "PPT";
-  if (file.name.endsWith(".docx") || file.name.endsWith(".doc")) return "DOC";
-  if (file.name.endsWith(".txt")) return "TXT";
+  if (file.name.endsWith(".pptx") || file.name.endsWith(".ppt") || file.type === "application/vnd.ms-powerpoint" || file.type === "application/vnd.openxmlformats-officedocument.presentationml.presentation") return "PPT";
+  if (file.name.endsWith(".docx") || file.name.endsWith(".doc") || file.type === "application/msword" || file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") return "DOC";
+  if (file.name.endsWith(".txt") || file.name.endsWith(".md") || file.name.endsWith(".csv")) return "TXT";
   return "FILE";
 }
 
