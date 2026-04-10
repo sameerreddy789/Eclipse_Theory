@@ -325,9 +325,9 @@ export default function Home() {
                           <input
                             type="file"
                             multiple
-                            accept=".pdf,.doc,.docx,.ppt,.pptx,.txt,.md,.csv,.png,.jpg,.jpeg,.gif,.webp,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,image/*,text/*"
+                            accept="*/*"
                             style={{ display: "none" }}
-                            onChange={(e) => { addFiles(mod.id, e.target.files); e.target.value = ""; }}
+                            onChange={(e) => { if (e.target.files && e.target.files.length > 0) addFiles(mod.id, e.target.files); e.target.value = ""; }}
                           />
                         </label>
                       </div>
