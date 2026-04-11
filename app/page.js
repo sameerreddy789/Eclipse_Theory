@@ -297,6 +297,7 @@ export default function Home() {
           <span className="pill"><span className="pill-dot" /> AI-powered</span>
           <span className="pill"><span className="pill-dot" /> Upload notes</span>
           <span className="pill"><span className="pill-dot" /> PDF export</span>
+          <span className="pill"><span className="pill-dot" /> Gemini 2.0 Flash</span>
         </div>
       </section>
 
