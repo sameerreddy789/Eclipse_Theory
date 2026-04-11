@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 import "./globals.css";
-import { callGemini, buildTopicPrompt, buildModulePrompt, buildGlossaryPrompt, buildRoutePrompt } from "./lib/gemini";
+import { callGemini, buildTopicPrompt, buildModulePrompt, buildGlossaryPrompt, buildRoutePrompt, PROVIDER_LIST } from "./lib/gemini";
 import { slugify, assembleMarkdown } from "./lib/markdown";
 import { processFiles, getFileIcon, formatFileSize } from "./lib/files";
 
@@ -23,9 +23,10 @@ let nextModuleId = 0;
 let nextTopicId = 0;
 
 export default function Home() {
-  const [apiKey, setApiKey] = useState("");
+  const [apiKeys, setApiKeys] = useState([]); // [{providerId, key}]
   const [showKeyInput, setShowKeyInput] = useState(false);
-  const [keySaved, setKeySaved] = useState(false);
+  const [newProvider, setNewProvider] = useState("gemini");
+  const [newKey, setNewKey] = useState("");
   const [courseName, setCourseName] = useState("");
   const [depth, setDepth] = useState("detailed");
   const [globalFiles, setGlobalFiles] = useState([]);
@@ -43,8 +44,10 @@ export default function Home() {
   const fileInputRef = useRef(null);
 
   useEffect(() => {
-    const saved = localStorage.getItem("eclipse-theory-api-key");
-    if (saved) { setApiKey(saved); setKeySaved(true); }
+    const saved = localStorage.getItem("eclipse-theory-keys-v2");
+    if (saved) {
+      try { const parsed = JSON.parse(saved); if (Array.isArray(parsed)) setApiKeys(parsed); } catch {}
+    }
   }, []);
 
   const showToast = useCallback((msg) => {
@@ -52,14 +55,27 @@ export default function Home() {
     setTimeout(() => setToast(""), 2200);
   }, []);
 
-  const saveApiKey = () => {
-    if (!apiKey.trim()) { showToast("Please enter an API key"); return; }
-    localStorage.setItem("eclipse-theory-api-key", apiKey.trim());
-    setKeySaved(true); setShowKeyInput(false); showToast("API key saved");
+  const addApiKey = () => {
+    if (!newKey.trim() || newKey.trim().length < 5) { showToast("Enter a valid API key"); return; }
+    const updated = [...apiKeys, { providerId: newProvider, key: newKey.trim() }];
+    setApiKeys(updated);
+    localStorage.setItem("eclipse-theory-keys-v2", JSON.stringify(updated));
+    setNewKey("");
+    const prov = PROVIDER_LIST.find((p) => p.id === newProvider);
+    showToast(`${prov?.name} key added (${updated.length} total)`);
   };
-  const clearApiKey = () => {
-    localStorage.removeItem("eclipse-theory-api-key");
-    setApiKey(""); setKeySaved(false); showToast("API key removed");
+  const removeApiKey = (idx) => {
+    const updated = apiKeys.filter((_, i) => i !== idx);
+    setApiKeys(updated);
+    localStorage.setItem("eclipse-theory-keys-v2", JSON.stringify(updated));
+    showToast("Key removed");
+  };
+  const keyIndexRef = useRef(0);
+  const getNextKey = () => {
+    if (apiKeys.length === 0) return null;
+    const entry = apiKeys[keyIndexRef.current % apiKeys.length];
+    keyIndexRef.current++;
+    return entry;
   };
 
   // Module/topic CRUD
@@ -92,8 +108,8 @@ export default function Home() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const key = apiKey.trim();
-    if (!key) { setShowKeyInput(true); showToast("Please add your Gemini API key first"); return; }
+    if (apiKeys.length === 0) { setShowKeyInput(true); showToast("Add at least one API key first"); return; }
+    keyIndexRef.current = 0;
     if (!courseName.trim()) { showToast("Please enter a course name"); return; }
 
     const validModules = modules
@@ -150,7 +166,7 @@ export default function Home() {
       const moduleMetas = await Promise.all(
         validModules.map((m, mi) => {
           const ctx = moduleContextMap[mi] || { text: "", images: [] };
-          return callGemini(key, buildModulePrompt(m.name, m.topics, courseName.trim(), ctx.text), ctx.images)
+          return callGemini(getNextKey(), buildModulePrompt(m.name, m.topics, courseName.trim(), ctx.text), ctx.images)
             .then((r) => r || { overview: "", objectives: [], estimatedHours: 0, difficulty: "Medium", prerequisites: "None" });
         })
       );
@@ -168,7 +184,7 @@ export default function Home() {
         const results = await Promise.all(
           batch.map((job) => {
             const ctx = moduleContextMap[job.mi] || { text: "", images: [] };
-            return callGemini(key, buildTopicPrompt(job.topicName, job.moduleName, courseName.trim(), depth, ctx.text), ctx.images);
+            return callGemini(getNextKey(), buildTopicPrompt(job.topicName, job.moduleName, courseName.trim(), depth, ctx.text), ctx.images);
           })
         );
         batch.forEach((job, idx) => { topicDataMap[`${job.mi}-${job.ti}`] = results[idx]; });
@@ -180,7 +196,7 @@ export default function Home() {
       // Phase 3: Glossary
       setProgress("Generating glossary...");
       const allTopicNames = validModules.flatMap((m) => m.topics);
-      const glossaryData = await callGemini(key, buildGlossaryPrompt(courseName.trim(), allTopicNames))
+      const glossaryData = await callGemini(getNextKey(), buildGlossaryPrompt(courseName.trim(), allTopicNames))
         .then((r) => r || { terms: [] });
 
       // Phase 4: Assemble
@@ -268,23 +284,44 @@ export default function Home() {
             Eclipse Theory
           </div>
           <div className="nav-right">
-            {keySaved && !showKeyInput ? (
-              <button className="api-key-btn saved" onClick={() => setShowKeyInput(true)}><KeyIcon /> API Key ✓</button>
-            ) : (
-              <button className="api-key-btn" onClick={() => setShowKeyInput(!showKeyInput)}><KeyIcon /> {showKeyInput ? "Close" : "API Key"}</button>
-            )}
+            <button className={`api-key-btn ${apiKeys.length > 0 ? "saved" : ""}`} onClick={() => setShowKeyInput(!showKeyInput)}>
+              <KeyIcon /> {apiKeys.length > 0 ? `${apiKeys.length} Key${apiKeys.length > 1 ? "s" : ""}` : "API Keys"}
+            </button>
           </div>
         </div>
         {showKeyInput && (
           <div className="api-key-panel">
             <div className="api-key-panel-inner">
-              <label htmlFor="apiKeyInput">Gemini API Key <span className="hint">— stored locally in your browser</span></label>
+              <label>Add API Key <span className="hint">— supports multiple free providers</span></label>
               <div className="api-key-row">
-                <input type="password" id="apiKeyInput" placeholder="AIzaSy..." value={apiKey} onChange={(e) => setApiKey(e.target.value)} autoComplete="off" />
-                <button className="btn-save-key" onClick={saveApiKey}>Save</button>
-                {keySaved && <button className="btn-clear-key" onClick={clearApiKey}>Clear</button>}
+                <select style={{ width: 150, flexShrink: 0, height: 38, fontSize: 13, cursor: "pointer" }} value={newProvider} onChange={(e) => setNewProvider(e.target.value)}>
+                  {PROVIDER_LIST.map((p) => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+                <input type="password" placeholder={PROVIDER_LIST.find((p) => p.id === newProvider)?.placeholder || "API key..."} value={newKey} onChange={(e) => setNewKey(e.target.value)} autoComplete="off" />
+                <button className="btn-save-key" onClick={addApiKey}>Add</button>
               </div>
-              <p className="api-key-hint">Get a free key at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">aistudio.google.com/apikey</a></p>
+              <p className="api-key-hint">
+                Get key: <a href={PROVIDER_LIST.find((p) => p.id === newProvider)?.keyUrl} target="_blank" rel="noopener noreferrer">
+                  {PROVIDER_LIST.find((p) => p.id === newProvider)?.keyUrl?.replace("https://", "")}
+                </a>
+                {" — "}{PROVIDER_LIST.find((p) => p.id === newProvider)?.note}
+              </p>
+              {apiKeys.length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10, paddingTop: 10, borderTop: "1px dashed var(--border)" }}>
+                  {apiKeys.map((k, i) => {
+                    const prov = PROVIDER_LIST.find((p) => p.id === k.providerId);
+                    return (
+                      <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, background: "var(--bg-input)", border: "1px solid var(--border)", borderRadius: 6, padding: "4px 6px 4px 8px", fontSize: 11 }}>
+                        <span style={{ fontWeight: 600, color: "var(--accent)", fontSize: 10 }}>{prov?.name || k.providerId}</span>
+                        <span style={{ color: "var(--text-dim)", fontFamily: "monospace", fontSize: 10 }}>...{k.key.slice(-6)}</span>
+                        <button className="btn-remove" style={{ padding: 2 }} onClick={() => removeApiKey(i)}><XIcon /></button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -296,8 +333,8 @@ export default function Home() {
         <div className="hero-pills">
           <span className="pill"><span className="pill-dot" /> AI-powered</span>
           <span className="pill"><span className="pill-dot" /> Upload notes</span>
+          <span className="pill"><span className="pill-dot" /> Multi-provider</span>
           <span className="pill"><span className="pill-dot" /> PDF export</span>
-          <span className="pill"><span className="pill-dot" /> Gemini 2.0 Flash</span>
         </div>
       </section>
 
