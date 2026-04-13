@@ -50,6 +50,7 @@ export default function Home() {
   const [useSemanticSearch, setUseSemanticSearch] = useState(true);
   const [useOCR, setUseOCR] = useState(false);
   const [globalFiles, setGlobalFiles] = useState([]);
+  const [fileUploadKey, setFileUploadKey] = useState(0); // Force re-render key
   
   // Debug: Log globalFiles changes
   useEffect(() => {
@@ -57,6 +58,8 @@ export default function Home() {
     if (globalFiles.length > 0) {
       console.log('[File Upload] Current files:', globalFiles.map(f => f.name));
     }
+    // Force re-render of upload zone
+    setFileUploadKey(prev => prev + 1);
   }, [globalFiles]);
   const [dragOver, setDragOver] = useState(false);
   const [modules, setModules] = useState(() => {
@@ -790,8 +793,11 @@ export default function Home() {
             </div>
 
             {/* GLOBAL FILE UPLOAD */}
-            <div className="field">
-              <label>Reference Material <span className="hint">— upload class notes, slides, PDFs, images (optional)</span></label>
+            <div className="field" key={`file-upload-${fileUploadKey}`}>
+              <label>
+                Reference Material <span className="hint">— upload class notes, slides, PDFs, images (optional)</span>
+                {globalFiles.length > 0 && <span style={{ marginLeft: 8, color: 'var(--accent)', fontSize: 12 }}>({globalFiles.length} file{globalFiles.length > 1 ? 's' : ''})</span>}
+              </label>
               <div
                 className={`upload-zone ${dragOver ? "drag-over" : ""} ${globalFiles.length > 0 ? "has-files" : ""}`}
                 onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
