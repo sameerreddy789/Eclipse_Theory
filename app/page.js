@@ -817,7 +817,11 @@ export default function Home() {
                   style={{ display: "none" }}
                   onChange={(e) => { handleGlobalFiles(e.target.files); e.target.value = ""; }}
                 />
-                {globalFiles.length === 0 ? (
+                {/* Debug: Show actual state */}
+                <div style={{ padding: 8, background: '#f0f0f0', fontSize: 11, fontFamily: 'monospace' }}>
+                  DEBUG: globalFiles.length = {globalFiles.length}, isEmpty = {globalFiles.length === 0 ? 'true' : 'false'}, hasFiles = {globalFiles.length > 0 ? 'true' : 'false'}
+                </div>
+                {!globalFiles || globalFiles.length === 0 ? (
                   <div className="upload-zone-empty">
                     <UploadIcon size={20} />
                     <span>Drop files here or click to browse</span>
