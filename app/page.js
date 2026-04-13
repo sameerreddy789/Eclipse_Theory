@@ -265,7 +265,19 @@ export default function Home() {
           globalImages
         );
         
-        moduleMetas.push(meta || { overview: "", objectives: [], estimatedHours: 0, difficulty: "Medium", prerequisites: "None" });
+        // Ensure module has metadata even if generation fails
+        if (!meta) {
+          console.warn(`Module metadata generation failed for: ${m.name}`);
+          moduleMetas.push({ 
+            overview: `This module covers ${m.name} with ${m.topics.length} topics.`, 
+            objectives: m.topics.map(t => `Understand ${t}`), 
+            estimatedHours: m.topics.length * 0.5, 
+            difficulty: "Medium", 
+            prerequisites: "None" 
+          });
+        } else {
+          moduleMetas.push(meta);
+        }
         
         // Small delay between module calls to avoid rate limits
         if (i < validModules.length - 1) {
@@ -327,7 +339,41 @@ export default function Home() {
             return result;
           })
         );
-        batch.forEach((job, idx) => { topicDataMap[`${job.mi}-${job.ti}`] = results[idx]; });
+        
+        // Ensure all results are valid, provide fallback for failed topics
+        batch.forEach((job, idx) => { 
+          const result = results[idx];
+          if (!result) {
+            console.warn(`Topic generation failed for: ${job.topicName}`);
+            // Provide minimal fallback content
+            topicDataMap[`${job.mi}-${job.ti}`] = {
+              difficulty: "Medium",
+              estimatedMinutes: 30,
+              introduction: `This topic covers ${job.topicName}.`,
+              coreConcept: `${job.topicName} is an important concept in ${job.moduleName}.`,
+              steps: ["Step 1: Understand the basics", "Step 2: Practice examples", "Step 3: Apply knowledge"],
+              types: [],
+              properties: [],
+              diagram: "Diagram not available",
+              realWorldAnalogy: "Content generation failed. Please regenerate this topic.",
+              codeLanguage: "text",
+              codeExample: "// Content not available",
+              codeInput: "",
+              codeProcess: "",
+              codeOutput: "",
+              keyPoints: ["Content generation failed", "Please regenerate this topic"],
+              interviewQuestions: [],
+              commonMistakes: [],
+              edgeCases: [],
+              advantages: [],
+              disadvantages: [],
+              relatedTopics: [],
+              summary: `${job.topicName} - content generation failed.`
+            };
+          } else {
+            topicDataMap[`${job.mi}-${job.ti}`] = result;
+          }
+        });
         completed += batch.length;
         const cacheMsg = cacheHits > 0 ? ` (${cacheHits} cached)` : "";
         setProgress(`Generating topics... ${completed}/${totalTopics}${cacheMsg} (${keyStats.mode} mode)`);
@@ -356,8 +402,24 @@ export default function Home() {
         console.warn("Glossary generation failed, using empty glossary");
       }
 
-      // Phase 4: Assemble
+      // Phase 4: Assemble with validation
       setProgress("Assembling document...");
+      
+      // Validate that all topics have data
+      let missingTopics = 0;
+      validModules.forEach((m, mi) => {
+        m.topics.forEach((t, ti) => {
+          if (!topicDataMap[`${mi}-${ti}`]) {
+            console.warn(`Missing data for topic: ${t} in module: ${m.name}`);
+            missingTopics++;
+          }
+        });
+      });
+      
+      if (missingTopics > 0) {
+        showToast(`Warning: ${missingTopics} topic(s) failed to generate`);
+      }
+      
       const md = assembleMarkdown({ courseName: courseName.trim(), depth, modules: validModules, moduleMetas, topicDataMap, glossaryData });
       setOutput(md);
       
@@ -367,7 +429,10 @@ export default function Home() {
         updateCacheStats();
       }
       
-      showToast("Document generated successfully");
+      const successMsg = missingTopics > 0 
+        ? `Document generated with ${missingTopics} incomplete topic(s)` 
+        : "Document generated successfully";
+      showToast(successMsg);
       setTimeout(() => outputRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
     } catch (err) {
       console.error(err);
