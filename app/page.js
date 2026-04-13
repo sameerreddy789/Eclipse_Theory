@@ -50,6 +50,14 @@ export default function Home() {
   const [useSemanticSearch, setUseSemanticSearch] = useState(true);
   const [useOCR, setUseOCR] = useState(false);
   const [globalFiles, setGlobalFiles] = useState([]);
+  
+  // Debug: Log globalFiles changes
+  useEffect(() => {
+    console.log('[File Upload] globalFiles state changed:', globalFiles.length, 'files');
+    if (globalFiles.length > 0) {
+      console.log('[File Upload] Current files:', globalFiles.map(f => f.name));
+    }
+  }, [globalFiles]);
   const [dragOver, setDragOver] = useState(false);
   const [modules, setModules] = useState(() => {
     const mId = ++nextModuleId;
@@ -149,14 +157,26 @@ export default function Home() {
 
   // Global file management
   const handleGlobalFiles = (files) => {
+    console.log('[File Upload] handleGlobalFiles called with:', files);
     if (files && files.length > 0) {
-      setGlobalFiles((prev) => [...prev, ...Array.from(files)]);
+      console.log('[File Upload] Files to add:', Array.from(files).map(f => ({ name: f.name, size: f.size, type: f.type })));
+      setGlobalFiles((prev) => {
+        const updated = [...prev, ...Array.from(files)];
+        console.log('[File Upload] Updated globalFiles state:', updated.length, 'files');
+        return updated;
+      });
       showToast(`${files.length} file${files.length > 1 ? "s" : ""} added`);
+    } else {
+      console.warn('[File Upload] No files provided or empty FileList');
     }
   };
-  const removeGlobalFile = (idx) => setGlobalFiles((prev) => prev.filter((_, i) => i !== idx));
+  const removeGlobalFile = (idx) => {
+    console.log('[File Upload] Removing file at index:', idx);
+    setGlobalFiles((prev) => prev.filter((_, i) => i !== idx));
+  };
 
   const handleDrop = (e) => {
+    console.log('[File Upload] Drop event triggered');
     e.preventDefault(); setDragOver(false);
     handleGlobalFiles(e.dataTransfer.files);
   };
