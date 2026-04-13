@@ -50,7 +50,7 @@ export default function Home() {
   const [useSemanticSearch, setUseSemanticSearch] = useState(true);
   const [useOCR, setUseOCR] = useState(false);
   const [globalFiles, setGlobalFiles] = useState([]);
-  const [fileUploadKey, setFileUploadKey] = useState(0); // Force re-render key
+  const [, forceUpdate] = useState({});
   
   // Debug: Log globalFiles changes
   useEffect(() => {
@@ -58,8 +58,8 @@ export default function Home() {
     if (globalFiles.length > 0) {
       console.log('[File Upload] Current files:', globalFiles.map(f => f.name));
     }
-    // Force re-render of upload zone
-    setFileUploadKey(prev => prev + 1);
+    // Force component re-render
+    forceUpdate({});
   }, [globalFiles]);
   const [dragOver, setDragOver] = useState(false);
   const [modules, setModules] = useState(() => {
@@ -163,8 +163,9 @@ export default function Home() {
     console.log('[File Upload] handleGlobalFiles called with:', files);
     if (files && files.length > 0) {
       console.log('[File Upload] Files to add:', Array.from(files).map(f => ({ name: f.name, size: f.size, type: f.type })));
+      const newFiles = Array.from(files);
       setGlobalFiles((prev) => {
-        const updated = [...prev, ...Array.from(files)];
+        const updated = [...prev, ...newFiles];
         console.log('[File Upload] Updated globalFiles state:', updated.length, 'files');
         return updated;
       });
@@ -793,7 +794,7 @@ export default function Home() {
             </div>
 
             {/* GLOBAL FILE UPLOAD */}
-            <div className="field" key={`file-upload-${fileUploadKey}`}>
+            <div className="field">
               <label>
                 Reference Material <span className="hint">— upload class notes, slides, PDFs, images (optional)</span>
                 {globalFiles.length > 0 && <span style={{ marginLeft: 8, color: 'var(--accent)', fontSize: 12 }}>({globalFiles.length} file{globalFiles.length > 1 ? 's' : ''})</span>}
@@ -819,7 +820,7 @@ export default function Home() {
                 />
                 {/* Debug: Show actual state */}
                 <div style={{ padding: 8, background: '#f0f0f0', fontSize: 11, fontFamily: 'monospace', marginBottom: 8 }}>
-                  DEBUG: files={globalFiles.length}, key={fileUploadKey}
+                  DEBUG: files={globalFiles.length}, render={Date.now()}
                 </div>
                 {(() => {
                   const hasFiles = globalFiles && globalFiles.length > 0;
