@@ -26,9 +26,10 @@ const PROVIDERS = {
     name: "Groq",
     keyUrl: "https://console.groq.com/keys",
     placeholder: "gsk_...",
-    note: "Fast processing (Llama 3.3 70B, 30 RPM, free)",
+    note: "Fast processing (Llama 4 Scout 17B, 30 RPM, 30K TPM, free)",
     role: "both",
     rpm: 30,
+    tpm: 30000,
     contextWindow: 128000,
   },
 };
@@ -60,15 +61,28 @@ async function callGeminiAPI(apiKey, prompt, images = []) {
   return data.candidates?.[0]?.content?.parts?.[0]?.text || null;
 }
 
-async function callGroqAPI(apiKey, prompt) {
+async function callGroqAPI(apiKey, prompt, systemPrompt = null) {
+  const messages = [];
+  
+  // Add system prompt if provided (Llama models work better with system prompts)
+  if (systemPrompt) {
+    messages.push({ role: "system", content: systemPrompt });
+  }
+  
+  messages.push({ 
+    role: "user", 
+    content: prompt + "\n\nRespond with ONLY valid JSON, no markdown code blocks." 
+  });
+  
   const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
     body: JSON.stringify({
-      model: "llama-3.3-70b-versatile", // Best quality model on Groq
-      messages: [{ role: "user", content: prompt + "\n\nRespond with ONLY valid JSON, no markdown." }],
+      model: "meta-llama/llama-4-scout-17b-16e-instruct", // 30K TPM, good balance
+      messages,
       temperature: 0.7,
       max_tokens: 8000,
+      response_format: { type: "json_object" }, // Force JSON output
     }),
   });
   if (!res.ok) throw { status: res.status, body: (await res.text()).slice(0, 200) };
@@ -76,7 +90,19 @@ async function callGroqAPI(apiKey, prompt) {
   return data.choices?.[0]?.message?.content || null;
 }
 
-async function callOpenRouterAPI(apiKey, prompt, model = "google/gemini-flash-1.5") {
+async function callOpenRouterAPI(apiKey, prompt, model = "meta-llama/llama-3.3-70b-instruct", systemPrompt = null) {
+  const messages = [];
+  
+  // Add system prompt if provided (Llama models work better with system prompts)
+  if (systemPrompt) {
+    messages.push({ role: "system", content: systemPrompt });
+  }
+  
+  messages.push({ 
+    role: "user", 
+    content: prompt + "\n\nRespond with ONLY valid JSON, no markdown code blocks." 
+  });
+  
   const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -87,9 +113,10 @@ async function callOpenRouterAPI(apiKey, prompt, model = "google/gemini-flash-1.
     },
     body: JSON.stringify({
       model,
-      messages: [{ role: "user", content: prompt + "\n\nRespond with ONLY valid JSON, no markdown." }],
+      messages,
       temperature: 0.7,
       max_tokens: 16384,
+      response_format: { type: "json_object" }, // Force JSON output
     }),
   });
   if (!res.ok) throw { status: res.status, body: (await res.text()).slice(0, 200) };
@@ -100,10 +127,12 @@ async function callOpenRouterAPI(apiKey, prompt, model = "google/gemini-flash-1.
 // ── UNIFIED CALLER ──
 
 async function callProvider(providerId, apiKey, prompt, images = [], options = {}) {
+  const systemPrompt = options.systemPrompt || null;
+  
   switch (providerId) {
     case "gemini": return callGeminiAPI(apiKey, prompt, images);
-    case "groq": return callGroqAPI(apiKey, prompt);
-    case "openrouter": return callOpenRouterAPI(apiKey, prompt, options.model);
+    case "groq": return callGroqAPI(apiKey, prompt, systemPrompt);
+    case "openrouter": return callOpenRouterAPI(apiKey, prompt, options.model, systemPrompt);
     default: throw new Error(`Unknown provider: ${providerId}`);
   }
 }
