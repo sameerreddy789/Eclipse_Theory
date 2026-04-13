@@ -103,7 +103,7 @@ export async function generateTopicTwoStage(
   
   // Select best model based on provider
   const modelOptions = writerKey.providerId === "openrouter"
-    ? { model: "google/gemini-2.0-flash-exp:free" }
+    ? { model: "google/gemini-flash-1.5" } // Stable, reliable model
     : {};
   
   const content = await callGemini(
@@ -132,7 +132,7 @@ async function generateWithoutAnalysis(topicName, moduleName, courseName, depth,
 
   const writingPrompt = buildWritingPrompt(topicName, moduleName, courseName, depth, null);
   const modelOptions = writerKey.providerId === "openrouter"
-    ? { model: "google/gemini-2.0-flash-exp:free" }
+    ? { model: "google/gemini-flash-1.5" }
     : {};
   
   return callGemini(writerKey, writingPrompt, images, 2, modelOptions);

@@ -76,7 +76,7 @@ async function callGroqAPI(apiKey, prompt) {
   return data.choices?.[0]?.message?.content || null;
 }
 
-async function callOpenRouterAPI(apiKey, prompt, model = "google/gemini-2.0-flash-exp:free") {
+async function callOpenRouterAPI(apiKey, prompt, model = "google/gemini-flash-1.5") {
   const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -112,7 +112,7 @@ async function callProvider(providerId, apiKey, prompt, images = [], options = {
  * Call LLM with a specific key entry {providerId, key}.
  * Parses JSON response. Returns null on failure.
  */
-export async function callGemini(keyEntry, prompt, images = [], retries = 2, options = {}) {
+export async function callGemini(keyEntry, prompt, images = [], retries = 1, options = {}) {
   const { providerId, key } = typeof keyEntry === "string"
     ? { providerId: "gemini", key: keyEntry }
     : keyEntry;
@@ -126,13 +126,16 @@ export async function callGemini(keyEntry, prompt, images = [], retries = 2, opt
     } catch (err) {
       const status = err?.status || 0;
       if (status === 429) {
-        console.warn(`[${providerId}] 429, waiting ${3 + attempt * 3}s`);
-        await sleep(3000 + attempt * 3000);
-        continue;
+        console.warn(`[${providerId}] 429 Rate limit, attempt ${attempt + 1}/${retries + 1}`);
+        if (attempt < retries) {
+          await sleep(5000); // Wait 5 seconds before retry
+          continue;
+        }
+        return null; // Don't retry forever
       }
       console.error(`[${providerId}] Attempt ${attempt + 1}:`, err.body || err.message || err);
       if (attempt === retries) return null;
-      await sleep(1500 * (attempt + 1));
+      await sleep(2000 * (attempt + 1));
     }
   }
   return null;
