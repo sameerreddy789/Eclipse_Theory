@@ -191,12 +191,12 @@ export function getKeyStats(apiKeys) {
 
 function getModeDescription(mode) {
   const descriptions = {
-    "two-stage-optimal": "Gemini analyzes (250K context) + OpenRouter writes (best quality)",
-    "two-stage-fast": "Gemini analyzes + Groq writes (3x faster, 30 RPM)",
-    "two-stage-hybrid": "Groq analyzes (fast) + OpenRouter writes (quality)",
-    "gemini-only": "Gemini for both (add OpenRouter for better writing)",
-    "openrouter-only": "OpenRouter for both (add Gemini for 250K context)",
-    "groq-only": "Groq for both (fastest, 30 RPM, add others for quality)",
+    "two-stage-optimal": "Gemini analyzes (250K context) + Llama 3.3 70B writes (best quality)",
+    "two-stage-fast": "Gemini analyzes + Groq Llama 3.3 70B writes (3x faster, 30 RPM)",
+    "two-stage-hybrid": "Groq analyzes (fast) + Llama 3.3 70B writes (quality)",
+    "gemini-only": "Gemini for both (add OpenRouter/Groq for better writing)",
+    "openrouter-only": "Llama 3.3 70B for both (add Gemini for 250K context)",
+    "groq-only": "Groq Llama 3.3 70B for both (fastest, 30 RPM)",
     "none": "No API keys configured",
   };
   return descriptions[mode] || "";

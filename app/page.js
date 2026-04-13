@@ -172,9 +172,15 @@ export default function Home() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (apiKeys.length === 0) { setShowKeyInput(true); showToast("Add at least one API key first"); return; }
     
-    // Check key configuration
+    // Check API keys first
+    if (apiKeys.length === 0) { 
+      setShowKeyInput(true); 
+      showToast("Add at least one API key first"); 
+      return; 
+    }
+    
+    // Check key configuration and show recommendations
     const keyStats = getKeyStats(apiKeys);
     if (keyStats.mode === "none") {
       showToast("Add at least one API key (Gemini, OpenRouter, or Groq)");
@@ -182,16 +188,27 @@ export default function Home() {
       return;
     }
     
-    // Show mode info
-    if (keyStats.optimal) {
-      showToast("Two-stage mode: Gemini (analyze) + OpenRouter (write)");
-    } else if (keyStats.mode === "gemini-only") {
-      showToast("Single-stage mode: Gemini only (add OpenRouter for better quality)");
-    } else if (keyStats.mode === "openrouter-only") {
-      showToast("Single-stage mode: OpenRouter only (add Gemini for document analysis)");
-    } else if (keyStats.mode === "groq-only") {
-      showToast("Fast mode: Groq only (add others for better quality)");
+    // Show configuration info
+    const hasGemini = apiKeys.some(k => k.providerId === "gemini");
+    const hasOpenRouter = apiKeys.some(k => k.providerId === "openrouter");
+    const hasGroq = apiKeys.some(k => k.providerId === "groq");
+    
+    let configMessage = "";
+    if (hasGemini && hasOpenRouter) {
+      configMessage = "✓ Optimal: Gemini (analyze) + Llama 70B (write)";
+    } else if (hasGemini && hasGroq) {
+      configMessage = "✓ Fast: Gemini (analyze) + Groq Llama 70B (write)";
+    } else if (hasGroq && hasOpenRouter) {
+      configMessage = "✓ Hybrid: Groq (analyze) + Llama 70B (write)";
+    } else if (hasGemini) {
+      configMessage = "⚠️ Gemini only - Add OpenRouter or Groq for better writing";
+    } else if (hasOpenRouter) {
+      configMessage = "⚠️ OpenRouter only - Add Gemini for document analysis";
+    } else if (hasGroq) {
+      configMessage = "✓ Groq only - Fast but may hit rate limits";
     }
+    
+    showToast(configMessage);
     
     keyIndexRef.current = 0;
     if (!courseName.trim()) { showToast("Please enter a course name"); return; }
