@@ -103,7 +103,7 @@ export async function generateTopicTwoStage(
   
   // Select best model based on provider
   const modelOptions = writerKey.providerId === "openrouter"
-    ? { model: "google/gemini-flash-1.5-8b" } // Correct model name
+    ? { model: "meta-llama/llama-3.3-70b-instruct" } // Llama 3.3 70B - powerful and free
     : {};
   
   const content = await callGemini(
@@ -132,7 +132,7 @@ async function generateWithoutAnalysis(topicName, moduleName, courseName, depth,
 
   const writingPrompt = buildWritingPrompt(topicName, moduleName, courseName, depth, null);
   const modelOptions = writerKey.providerId === "openrouter"
-    ? { model: "google/gemini-flash-1.5-8b" }
+    ? { model: "meta-llama/llama-3.3-70b-instruct" }
     : {};
   
   return callGemini(writerKey, writingPrompt, images, 2, modelOptions);
