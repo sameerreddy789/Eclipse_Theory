@@ -52,13 +52,8 @@ export default function Home() {
   const [globalFiles, setGlobalFiles] = useState([]);
   const [, forceUpdate] = useState({});
   
-  // Debug: Log globalFiles changes
+  // Force re-render when files change
   useEffect(() => {
-    console.log('[File Upload] globalFiles state changed:', globalFiles.length, 'files');
-    if (globalFiles.length > 0) {
-      console.log('[File Upload] Current files:', globalFiles.map(f => f.name));
-    }
-    // Force component re-render
     forceUpdate({});
   }, [globalFiles]);
   const [dragOver, setDragOver] = useState(false);
@@ -160,27 +155,17 @@ export default function Home() {
 
   // Global file management
   const handleGlobalFiles = (files) => {
-    console.log('[File Upload] handleGlobalFiles called with:', files);
     if (files && files.length > 0) {
-      console.log('[File Upload] Files to add:', Array.from(files).map(f => ({ name: f.name, size: f.size, type: f.type })));
       const newFiles = Array.from(files);
-      setGlobalFiles((prev) => {
-        const updated = [...prev, ...newFiles];
-        console.log('[File Upload] Updated globalFiles state:', updated.length, 'files');
-        return updated;
-      });
+      setGlobalFiles((prev) => [...prev, ...newFiles]);
       showToast(`${files.length} file${files.length > 1 ? "s" : ""} added`);
-    } else {
-      console.warn('[File Upload] No files provided or empty FileList');
     }
   };
   const removeGlobalFile = (idx) => {
-    console.log('[File Upload] Removing file at index:', idx);
     setGlobalFiles((prev) => prev.filter((_, i) => i !== idx));
   };
 
   const handleDrop = (e) => {
-    console.log('[File Upload] Drop event triggered');
     e.preventDefault(); setDragOver(false);
     handleGlobalFiles(e.dataTransfer.files);
   };
@@ -818,13 +803,8 @@ export default function Home() {
                   style={{ display: "none" }}
                   onChange={(e) => { handleGlobalFiles(e.target.files); e.target.value = ""; }}
                 />
-                {/* Debug: Show actual state */}
-                <div style={{ padding: 8, background: '#f0f0f0', fontSize: 11, fontFamily: 'monospace', marginBottom: 8 }}>
-                  DEBUG: files={globalFiles.length}, render={Date.now()}
-                </div>
                 {(() => {
                   const hasFiles = globalFiles && globalFiles.length > 0;
-                  console.log('[Render] hasFiles:', hasFiles, 'length:', globalFiles?.length);
                   
                   if (!hasFiles) {
                     return (
