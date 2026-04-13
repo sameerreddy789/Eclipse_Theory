@@ -9,17 +9,24 @@ const IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 const MAX_TEXT_CHARS = 12000; // Cap text context per module to avoid token overflow
 
 export async function processFiles(files) {
-  const textParts = [];
+  const processedFiles = [];
   const imageParts = [];
 
   for (const file of files) {
     try {
       if (file.type === "application/pdf") {
         const text = await extractPdfText(file);
-        if (text) textParts.push(`[PDF: ${file.name}]\n${text}`);
+        if (text) {
+          processedFiles.push({
+            text,
+            fileName: file.name,
+            fileType: "PDF",
+            size: file.size,
+          });
+        }
       } else if (IMAGE_TYPES.includes(file.type)) {
         const b64 = await fileToBase64(file);
-        imageParts.push({ mimeType: file.type, data: b64 });
+        imageParts.push({ mimeType: file.type, data: b64, fileName: file.name });
       } else if (
         file.type === "text/plain" ||
         file.name.endsWith(".txt") ||
@@ -27,26 +34,37 @@ export async function processFiles(files) {
         file.name.endsWith(".csv")
       ) {
         const text = await file.text();
-        if (text) textParts.push(`[File: ${file.name}]\n${text}`);
+        if (text) {
+          processedFiles.push({
+            text,
+            fileName: file.name,
+            fileType: "TXT",
+            size: file.size,
+          });
+        }
       } else if (
         file.name.endsWith(".pptx") ||
         file.name.endsWith(".docx")
       ) {
-        // For PPTX/DOCX, extract what we can from the XML inside the zip
         const text = await extractOfficeText(file);
-        if (text) textParts.push(`[${file.name}]\n${text}`);
+        if (text) {
+          processedFiles.push({
+            text,
+            fileName: file.name,
+            fileType: file.name.endsWith(".pptx") ? "PPT" : "DOC",
+            size: file.size,
+          });
+        }
       } else if (
         file.name.endsWith(".ppt") ||
         file.name.endsWith(".doc") ||
         file.type === "application/vnd.ms-powerpoint" ||
         file.type === "application/msword"
       ) {
-        // Legacy .ppt/.doc — try reading what we can as text
         try {
           const buf = await file.arrayBuffer();
           const decoder = new TextDecoder("utf-8", { fatal: false });
           const raw = decoder.decode(buf);
-          // Extract readable strings (filter out binary garbage)
           const readable = raw
             .split(/[\x00-\x08\x0E-\x1F]+/)
             .filter((s) => s.trim().length > 3 && /[a-zA-Z]/.test(s))
@@ -54,16 +72,27 @@ export async function processFiles(files) {
             .replace(/\s+/g, " ")
             .trim();
           if (readable.length > 50) {
-            textParts.push(`[${file.name}]\n${readable.slice(0, 8000)}`);
+            processedFiles.push({
+              text: readable,
+              fileName: file.name,
+              fileType: file.name.endsWith(".ppt") ? "PPT" : "DOC",
+              size: file.size,
+            });
           }
         } catch {
           // Skip unreadable legacy files
         }
       } else {
-        // Try reading as text for unknown types
         try {
           const text = await file.text();
-          if (text && text.length > 20) textParts.push(`[File: ${file.name}]\n${text.slice(0, 5000)}`);
+          if (text && text.length > 20) {
+            processedFiles.push({
+              text: text.slice(0, 15000),
+              fileName: file.name,
+              fileType: "FILE",
+              size: file.size,
+            });
+          }
         } catch {
           // Skip unreadable files
         }
@@ -73,13 +102,7 @@ export async function processFiles(files) {
     }
   }
 
-  // Combine and cap text
-  let combinedText = textParts.join("\n\n---\n\n");
-  if (combinedText.length > MAX_TEXT_CHARS) {
-    combinedText = combinedText.slice(0, MAX_TEXT_CHARS) + "\n\n[...truncated for token limit]";
-  }
-
-  return { text: combinedText, images: imageParts };
+  return { processedFiles, images: imageParts };
 }
 
 async function extractPdfText(file) {

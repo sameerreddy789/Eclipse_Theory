@@ -2,9 +2,22 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 import "./globals.css";
-import { callGemini, buildTopicPrompt, buildModulePrompt, buildGlossaryPrompt, buildRoutePrompt, PROVIDER_LIST } from "./lib/gemini";
+import { callGemini, buildModulePrompt, buildGlossaryPrompt, PROVIDER_LIST, testApiKey } from "./lib/gemini";
 import { slugify, assembleMarkdown } from "./lib/markdown";
 import { processFiles, getFileIcon, formatFileSize } from "./lib/files";
+import { chunkDocuments, findRelevantChunks } from "./lib/chunking";
+import { generateTopicTwoStage, getKeyStats } from "./lib/twoStage";
+import { 
+  getCachedDocumentChunks, 
+  cacheDocumentChunks, 
+  getCachedAnalysisResult,
+  cacheAnalysisResult,
+  getCachedGeneratedDocument,
+  cacheGeneratedDocument,
+  getCacheStats,
+  clearAllCaches,
+  clearOldCaches,
+} from "./lib/cache";
 
 function XIcon() {
   return (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>);
@@ -27,8 +40,10 @@ export default function Home() {
   const [showKeyInput, setShowKeyInput] = useState(false);
   const [newProvider, setNewProvider] = useState("gemini");
   const [newKey, setNewKey] = useState("");
+  const [testingKey, setTestingKey] = useState(false);
   const [courseName, setCourseName] = useState("");
   const [depth, setDepth] = useState("detailed");
+  const [speedMode, setSpeedMode] = useState(false);
   const [globalFiles, setGlobalFiles] = useState([]);
   const [dragOver, setDragOver] = useState(false);
   const [modules, setModules] = useState(() => {
@@ -40,6 +55,8 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState("");
   const [toast, setToast] = useState("");
+  const [keyMode, setKeyMode] = useState("none");
+  const [cacheStats, setCacheStats] = useState({ totalSizeMB: "0", counts: {} });
   const outputRef = useRef(null);
   const fileInputRef = useRef(null);
 
@@ -48,7 +65,20 @@ export default function Home() {
     if (saved) {
       try { const parsed = JSON.parse(saved); if (Array.isArray(parsed)) setApiKeys(parsed); } catch {}
     }
+    // Clear old caches on mount
+    clearOldCaches(7);
+    updateCacheStats();
   }, []);
+
+  useEffect(() => {
+    const stats = getKeyStats(apiKeys);
+    setKeyMode(stats.mode);
+  }, [apiKeys]);
+
+  const updateCacheStats = () => {
+    const stats = getCacheStats();
+    setCacheStats(stats);
+  };
 
   const showToast = useCallback((msg) => {
     setToast(msg);
@@ -63,6 +93,26 @@ export default function Home() {
     setNewKey("");
     const prov = PROVIDER_LIST.find((p) => p.id === newProvider);
     showToast(`${prov?.name} key added (${updated.length} total)`);
+  };
+
+  const testKey = async () => {
+    if (!newKey.trim() || newKey.trim().length < 5) { 
+      showToast("Enter a valid API key first"); 
+      return; 
+    }
+    
+    setTestingKey(true);
+    showToast("Testing API key...");
+    
+    const result = await testApiKey(newProvider, newKey.trim());
+    
+    setTestingKey(false);
+    
+    if (result.success) {
+      showToast(`✓ ${result.message}`);
+    } else {
+      showToast(`✗ ${result.error}`);
+    }
   };
   const removeApiKey = (idx) => {
     const updated = apiKeys.filter((_, i) => i !== idx);
@@ -109,6 +159,24 @@ export default function Home() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (apiKeys.length === 0) { setShowKeyInput(true); showToast("Add at least one API key first"); return; }
+    
+    // Check key configuration
+    const keyStats = getKeyStats(apiKeys);
+    if (!keyStats.hasAnalyzer && !keyStats.hasWriter) {
+      showToast("Add at least Gemini or OpenRouter key");
+      setShowKeyInput(true);
+      return;
+    }
+    
+    // Show mode info
+    if (keyStats.optimal) {
+      showToast("Two-stage mode: Gemini (analyze) + OpenRouter (write)");
+    } else if (keyStats.mode === "gemini-only") {
+      showToast("Single-stage mode: Gemini only (add OpenRouter for better quality)");
+    } else if (keyStats.mode === "openrouter-only") {
+      showToast("Single-stage mode: OpenRouter only (add Gemini for document analysis)");
+    }
+    
     keyIndexRef.current = 0;
     if (!courseName.trim()) { showToast("Please enter a course name"); return; }
 
@@ -123,58 +191,83 @@ export default function Home() {
     setLoading(true); setOutput("");
 
     try {
-      // Phase 0: Process all global files
-      let globalContext = { text: "", images: [] };
-      let moduleContextMap = {};
+      // Phase 0: Process and chunk all global files (with caching)
+      let documentChunks = [];
+      let documentHashes = [];
+      let globalImages = [];
 
       if (globalFiles.length > 0) {
         setProgress(`Processing ${globalFiles.length} uploaded file${globalFiles.length > 1 ? "s" : ""}...`);
-        globalContext = await processFiles(globalFiles);
+        const { processedFiles, images } = await processFiles(globalFiles);
+        globalImages = images;
 
-        // Route content to modules using Gemini
-        if (globalContext.text && validModules.length > 1) {
-          setProgress("Analyzing notes and routing to modules...");
-          const routeResult = await callGemini(
-            key,
-            buildRoutePrompt(validModules, globalContext.text),
-            globalContext.images
-          );
-
-          if (routeResult?.mapping) {
-            for (const entry of routeResult.mapping) {
-              const mi = entry.moduleIndex;
-              if (mi >= 0 && mi < validModules.length && entry.relevantContent) {
-                moduleContextMap[mi] = {
-                  text: entry.relevantContent,
-                  images: globalContext.images, // images go to all modules
-                };
+        if (processedFiles.length > 0) {
+          setProgress("Checking cache for processed documents...");
+          
+          // Try to get cached chunks for each file
+          for (const file of globalFiles) {
+            const cached = await getCachedDocumentChunks(file);
+            if (cached) {
+              documentChunks.push(...cached.chunks);
+              documentHashes.push(cached.hash);
+            } else {
+              // Process and cache new file
+              const fileData = processedFiles.find((pf) => pf.fileName === file.name);
+              if (fileData) {
+                const chunks = chunkDocuments([fileData]);
+                const hash = await cacheDocumentChunks(file, chunks);
+                documentChunks.push(...chunks);
+                if (hash) documentHashes.push(hash);
               }
             }
           }
-        }
-
-        // Fallback: if routing failed or single module, give everything to all
-        if (Object.keys(moduleContextMap).length === 0) {
-          for (let i = 0; i < validModules.length; i++) {
-            moduleContextMap[i] = globalContext;
+          
+          const cachedCount = documentHashes.length;
+          const totalCount = globalFiles.length;
+          if (cachedCount > 0) {
+            showToast(`Used cache for ${cachedCount}/${totalCount} files (${documentChunks.length} chunks)`);
+          } else {
+            showToast(`Processed ${processedFiles.length} files into ${documentChunks.length} searchable chunks`);
           }
+          updateCacheStats();
         }
       }
 
-      // Phase 1: Module metadata
+      // Check if we can use cached full document
+      if (documentHashes.length > 0) {
+        setProgress("Checking for cached document...");
+        const cachedDoc = await getCachedGeneratedDocument(courseName.trim(), validModules, documentHashes);
+        if (cachedDoc) {
+          setOutput(cachedDoc);
+          showToast("Loaded from cache (instant!)");
+          setLoading(false);
+          setProgress("");
+          setTimeout(() => outputRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
+          return;
+        }
+      }
+
+      // Phase 1: Module metadata (use Gemini or first available key)
       setProgress(`Generating module overviews (${validModules.length})...`);
+      const analyzerKey = apiKeys.find((k) => k.providerId === "gemini") || apiKeys[0];
       const moduleMetas = await Promise.all(
-        validModules.map((m, mi) => {
-          const ctx = moduleContextMap[mi] || { text: "", images: [] };
-          return callGemini(getNextKey(), buildModulePrompt(m.name, m.topics, courseName.trim(), ctx.text), ctx.images)
-            .then((r) => r || { overview: "", objectives: [], estimatedHours: 0, difficulty: "Medium", prerequisites: "None" });
+        validModules.map((m) => {
+          // For module overview, use chunks related to module name
+          const relevantChunks = findRelevantChunks(documentChunks, m.name, 5);
+          const context = relevantChunks.map((c) => `[${c.metadata.fileName}]\n${c.text}`).join("\n\n");
+          return callGemini(
+            analyzerKey,
+            buildModulePrompt(m.name, m.topics, courseName.trim(), context),
+            globalImages
+          ).then((r) => r || { overview: "", objectives: [], estimatedHours: 0, difficulty: "Medium", prerequisites: "None" });
         })
       );
 
-      // Phase 2: Topics in batches of 3
+      // Phase 2: Topics with two-stage generation (with analysis caching)
       const topicDataMap = {};
       let completed = 0;
-      const BATCH_SIZE = 3;
+      let cacheHits = 0;
+      const BATCH_SIZE = 2; // Reduced batch size for two-stage (more API calls)
       const allTopicJobs = validModules.flatMap((m, mi) =>
         m.topics.map((t, ti) => ({ mi, ti, topicName: t, moduleName: m.name }))
       );
@@ -182,15 +275,58 @@ export default function Home() {
       for (let i = 0; i < allTopicJobs.length; i += BATCH_SIZE) {
         const batch = allTopicJobs.slice(i, i + BATCH_SIZE);
         const results = await Promise.all(
-          batch.map((job) => {
-            const ctx = moduleContextMap[job.mi] || { text: "", images: [] };
-            return callGemini(getNextKey(), buildTopicPrompt(job.topicName, job.moduleName, courseName.trim(), depth, ctx.text), ctx.images);
+          batch.map(async (job) => {
+            // Find most relevant chunks for this specific topic
+            const query = `${job.topicName} ${job.moduleName}`;
+            const relevantChunks = findRelevantChunks(documentChunks, query, 8);
+
+            // Try to get cached analysis first
+            let extractedInfo = null;
+            if (documentHashes.length > 0) {
+              extractedInfo = await getCachedAnalysisResult(job.topicName, job.moduleName, documentHashes);
+              if (extractedInfo) {
+                cacheHits++;
+                console.log(`[Cache] Using cached analysis for "${job.topicName}"`);
+              }
+            }
+
+            // Generate with cached analysis if available
+            const result = await generateTopicTwoStage(
+              job.topicName,
+              job.moduleName,
+              courseName.trim(),
+              depth,
+              relevantChunks,
+              apiKeys,
+              globalImages,
+              speedMode,
+              extractedInfo // Pass cached analysis
+            );
+
+            // Cache the analysis result if we just generated it
+            if (!extractedInfo && result && documentHashes.length > 0) {
+              // Extract the analysis info from result if available
+              if (result.sourcesUsed && result.sourcesUsed.length > 0) {
+                await cacheAnalysisResult(job.topicName, job.moduleName, documentHashes, {
+                  sources: result.sourcesUsed,
+                  // Store minimal info for cache
+                });
+              }
+            }
+
+            return result;
           })
         );
         batch.forEach((job, idx) => { topicDataMap[`${job.mi}-${job.ti}`] = results[idx]; });
         completed += batch.length;
-        setProgress(`Generating topics... ${completed}/${totalTopics}`);
-        if (i + BATCH_SIZE < allTopicJobs.length) await new Promise((r) => setTimeout(r, 500));
+        const cacheMsg = cacheHits > 0 ? ` (${cacheHits} cached)` : "";
+        setProgress(`Generating topics... ${completed}/${totalTopics}${cacheMsg} (${keyStats.mode} mode)`);
+        if (i + BATCH_SIZE < allTopicJobs.length) await new Promise((r) => setTimeout(r, 1000));
+      }
+
+      if (cacheHits > 0) {
+        showToast(`Used cache for ${cacheHits}/${totalTopics} topics`);
+        updateCacheStats();
       }
 
       // Phase 3: Glossary
@@ -203,6 +339,13 @@ export default function Home() {
       setProgress("Assembling document...");
       const md = assembleMarkdown({ courseName: courseName.trim(), depth, modules: validModules, moduleMetas, topicDataMap, glossaryData });
       setOutput(md);
+      
+      // Cache the final document
+      if (documentHashes.length > 0) {
+        await cacheGeneratedDocument(courseName.trim(), validModules, documentHashes, md);
+        updateCacheStats();
+      }
+      
       showToast("Document generated successfully");
       setTimeout(() => outputRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
     } catch (err) {
@@ -287,6 +430,16 @@ export default function Home() {
             <button className={`api-key-btn ${apiKeys.length > 0 ? "saved" : ""}`} onClick={() => setShowKeyInput(!showKeyInput)}>
               <KeyIcon /> {apiKeys.length > 0 ? `${apiKeys.length} Key${apiKeys.length > 1 ? "s" : ""}` : "API Keys"}
             </button>
+            {keyMode === "two-stage-optimal" && (
+              <span className="nav-tag" style={{ background: "rgba(34, 197, 94, 0.08)", borderColor: "rgba(34, 197, 94, 0.2)", color: "#16a34a" }}>
+                Optimal
+              </span>
+            )}
+            {keyMode === "two-stage-fast" && (
+              <span className="nav-tag" style={{ background: "rgba(59, 130, 246, 0.08)", borderColor: "rgba(59, 130, 246, 0.2)", color: "#2563eb" }}>
+                Fast Mode
+              </span>
+            )}
           </div>
         </div>
         {showKeyInput && (
@@ -300,6 +453,14 @@ export default function Home() {
                   ))}
                 </select>
                 <input type="password" placeholder={PROVIDER_LIST.find((p) => p.id === newProvider)?.placeholder || "API key..."} value={newKey} onChange={(e) => setNewKey(e.target.value)} autoComplete="off" />
+                <button 
+                  className="btn-test-key" 
+                  onClick={testKey}
+                  disabled={testingKey || !newKey.trim()}
+                  style={{ opacity: testingKey || !newKey.trim() ? 0.5 : 1 }}
+                >
+                  {testingKey ? "Testing..." : "Test"}
+                </button>
                 <button className="btn-save-key" onClick={addApiKey}>Add</button>
               </div>
               <p className="api-key-hint">
@@ -308,6 +469,20 @@ export default function Home() {
                 </a>
                 {" — "}{PROVIDER_LIST.find((p) => p.id === newProvider)?.note}
               </p>
+              {keyMode !== "none" && (
+                <div style={{ marginTop: 12, padding: "10px 12px", background: keyMode.includes("optimal") ? "rgba(34, 197, 94, 0.06)" : keyMode.includes("fast") ? "rgba(59, 130, 246, 0.06)" : "rgba(234, 179, 8, 0.06)", border: `1px solid ${keyMode.includes("optimal") ? "rgba(34, 197, 94, 0.2)" : keyMode.includes("fast") ? "rgba(59, 130, 246, 0.2)" : "rgba(234, 179, 8, 0.2)"}`, borderRadius: 6, fontSize: 12, color: "var(--text-muted)" }}>
+                  <strong style={{ color: keyMode.includes("optimal") ? "#16a34a" : keyMode.includes("fast") ? "#2563eb" : "#ca8a04" }}>
+                    {keyMode === "two-stage-optimal" && "✓ Optimal Setup"}
+                    {keyMode === "two-stage-fast" && "⚡ Fast Mode"}
+                    {keyMode === "two-stage-hybrid" && "⚡ Hybrid Mode"}
+                    {keyMode === "gemini-only" && "⚠ Gemini Only"}
+                    {keyMode === "openrouter-only" && "⚠ OpenRouter Only"}
+                    {keyMode === "groq-only" && "⚡ Groq Only"}
+                  </strong>
+                  <br />
+                  {getKeyStats(apiKeys).description}
+                </div>
+              )}
               {apiKeys.length > 0 && (
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10, paddingTop: 10, borderTop: "1px dashed var(--border)" }}>
                   {apiKeys.map((k, i) => {
@@ -322,6 +497,26 @@ export default function Home() {
                   })}
                 </div>
               )}
+              {cacheStats.totalSizeMB > 0 && (
+                <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px dashed var(--border)" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                    <span style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 600 }}>
+                      Cache: {cacheStats.totalSizeMB} MB ({cacheStats.percentUsed}% used)
+                    </span>
+                    <button
+                      onClick={() => { clearAllCaches(); updateCacheStats(); showToast("Cache cleared"); }}
+                      style={{ fontSize: 10, padding: "3px 8px", background: "none", border: "1px solid var(--border)", borderRadius: 4, color: "var(--text-dim)", cursor: "pointer" }}
+                    >
+                      Clear Cache
+                    </button>
+                  </div>
+                  <div style={{ fontSize: 10, color: "var(--text-dim)" }}>
+                    {cacheStats.counts.chunks > 0 && `${cacheStats.counts.chunks} documents, `}
+                    {cacheStats.counts.analysis > 0 && `${cacheStats.counts.analysis} analyses, `}
+                    {cacheStats.counts.document > 0 && `${cacheStats.counts.document} full docs`}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -331,9 +526,9 @@ export default function Home() {
         <h1>Generate <span className="highlight">Master Learning</span> Documents</h1>
         <p>Upload your class notes, define modules and topics — AI reads your material and generates a complete study document.</p>
         <div className="hero-pills">
-          <span className="pill"><span className="pill-dot" /> AI-powered</span>
+          <span className="pill"><span className="pill-dot" /> Two-stage AI</span>
           <span className="pill"><span className="pill-dot" /> Upload notes</span>
-          <span className="pill"><span className="pill-dot" /> Multi-provider</span>
+          <span className="pill"><span className="pill-dot" /> Smart analysis</span>
           <span className="pill"><span className="pill-dot" /> PDF export</span>
         </div>
       </section>
@@ -358,6 +553,21 @@ export default function Home() {
                 </select>
               </div>
             </div>
+
+            {/* Speed Mode Toggle */}
+            {apiKeys.some((k) => k.providerId === "groq") && (
+              <div className="field">
+                <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", userSelect: "none" }}>
+                  <input
+                    type="checkbox"
+                    checked={speedMode}
+                    onChange={(e) => setSpeedMode(e.target.checked)}
+                    style={{ width: 16, height: 16, cursor: "pointer" }}
+                  />
+                  <span>Speed Mode <span className="hint">— Use Groq for 3x faster generation (30 RPM)</span></span>
+                </label>
+              </div>
+            )}
 
             {/* GLOBAL FILE UPLOAD */}
             <div className="field">

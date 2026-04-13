@@ -133,6 +133,20 @@ nav {
   transition: background 150ms ease;
 }
 .btn-save-key:hover { background: #2a2a2a; }
+.btn-test-key {
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  padding: 0 14px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+.btn-test-key:hover { background: var(--bg-elevated); }
+.btn-test-key:disabled { cursor: not-allowed; }
 .btn-clear-key {
   font-family: inherit;
   font-size: 12px;
