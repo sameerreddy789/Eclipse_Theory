@@ -329,7 +329,7 @@ export default function Home() {
         
         // Small delay between module calls to avoid rate limits
         if (i < validModules.length - 1) {
-          await new Promise((r) => setTimeout(r, 1000));
+          await new Promise((r) => setTimeout(r, 7000)); // Increased to 7 seconds
         }
       }
 
@@ -432,7 +432,7 @@ export default function Home() {
         completed += batch.length;
         const cacheMsg = cacheHits > 0 ? ` (${cacheHits} cached)` : "";
         setProgress(`Generating topics... ${completed}/${totalTopics}${cacheMsg} (${keyStats.mode} mode)`);
-        if (i + BATCH_SIZE < allTopicJobs.length) await new Promise((r) => setTimeout(r, 1000));
+        if (i + BATCH_SIZE < allTopicJobs.length) await new Promise((r) => setTimeout(r, 7000)); // Increased delay
       }
 
       if (cacheHits > 0) {

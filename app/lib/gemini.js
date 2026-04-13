@@ -128,7 +128,7 @@ export async function callGemini(keyEntry, prompt, images = [], retries = 1, opt
       if (status === 429) {
         console.warn(`[${providerId}] 429 Rate limit, attempt ${attempt + 1}/${retries + 1}`);
         if (attempt < retries) {
-          await sleep(5000); // Wait 5 seconds before retry
+          await sleep(10000); // Wait 10 seconds before retry
           continue;
         }
         return null; // Don't retry forever
