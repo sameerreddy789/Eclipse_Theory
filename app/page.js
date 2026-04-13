@@ -249,21 +249,29 @@ export default function Home() {
         }
       }
 
-      // Phase 1: Module metadata (use Gemini or first available key)
+      // Phase 1: Module metadata (sequential to avoid rate limits)
       setProgress(`Generating module overviews (${validModules.length})...`);
       const analyzerKey = apiKeys.find((k) => k.providerId === "gemini") || apiKeys[0];
-      const moduleMetas = await Promise.all(
-        validModules.map((m) => {
-          // For module overview, use chunks related to module name
-          const relevantChunks = findRelevantChunks(documentChunks, m.name, 5);
-          const context = relevantChunks.map((c) => `[${c.metadata.fileName}]\n${c.text}`).join("\n\n");
-          return callGemini(
-            analyzerKey,
-            buildModulePrompt(m.name, m.topics, courseName.trim(), context),
-            globalImages
-          ).then((r) => r || { overview: "", objectives: [], estimatedHours: 0, difficulty: "Medium", prerequisites: "None" });
-        })
-      );
+      const moduleMetas = [];
+      
+      for (let i = 0; i < validModules.length; i++) {
+        const m = validModules[i];
+        const relevantChunks = findRelevantChunks(documentChunks, m.name, 5);
+        const context = relevantChunks.map((c) => `[${c.metadata.fileName}]\n${c.text}`).join("\n\n");
+        
+        const meta = await callGemini(
+          analyzerKey,
+          buildModulePrompt(m.name, m.topics, courseName.trim(), context),
+          globalImages
+        );
+        
+        moduleMetas.push(meta || { overview: "", objectives: [], estimatedHours: 0, difficulty: "Medium", prerequisites: "None" });
+        
+        // Small delay between module calls to avoid rate limits
+        if (i < validModules.length - 1) {
+          await new Promise((r) => setTimeout(r, 1000));
+        }
+      }
 
       // Phase 2: Topics with two-stage generation (with analysis caching)
       const topicDataMap = {};
@@ -331,11 +339,22 @@ export default function Home() {
         updateCacheStats();
       }
 
-      // Phase 3: Glossary
+      // Phase 3: Glossary (with error handling)
       setProgress("Generating glossary...");
       const allTopicNames = validModules.flatMap((m) => m.topics);
-      const glossaryData = await callGemini(getNextKey(), buildGlossaryPrompt(courseName.trim(), allTopicNames))
-        .then((r) => r || { terms: [] });
+      let glossaryData = { terms: [] };
+      
+      try {
+        const result = await callGemini(
+          analyzerKey,
+          buildGlossaryPrompt(courseName.trim(), allTopicNames)
+        );
+        if (result) {
+          glossaryData = result;
+        }
+      } catch (err) {
+        console.warn("Glossary generation failed, using empty glossary");
+      }
 
       // Phase 4: Assemble
       setProgress("Assembling document...");
