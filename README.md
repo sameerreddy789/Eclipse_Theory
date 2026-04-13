@@ -4,16 +4,322 @@
 
 Transform your class notes, lecture slides, and study materials into comprehensive, structured study documents using advanced AI.
 
+---
+
+## 📖 Table of Contents
+
+- [Overview](#overview)
+- [How It Works](#how-it-works)
+- [Architecture](#architecture)
+- [Features](#features)
+- [Tech Stack](#tech-stack)
+- [Quick Start](#quick-start)
+- [Performance](#performance)
+- [Use Cases](#use-cases)
+- [Documentation](#documentation)
+- [Installation](#installation)
+- [Deployment](#deployment)
+- [Contributing](#contributing)
+- [License](#license)
+
+---
+
+## 🎯 Overview
+
+Eclipse Theory is a **Next.js web application** that uses AI to generate comprehensive study documents from your uploaded materials. It employs a sophisticated **two-stage AI pipeline** with **smart caching** to create structured, exam-ready learning documents.
+
+### Key Capabilities
+
+- 📚 **Document Processing** - Extracts content from PDFs, DOCX, PPTX, images
+- 🤖 **Two-Stage AI** - Separate analysis and writing for maximum accuracy
+- 💾 **Smart Caching** - Up to 480x faster regeneration
+- ⚡ **Speed Mode** - 3x faster with Groq (30 RPM)
+- 🎯 **Intelligent Chunking** - Finds relevant sections for each topic
+- 📄 **Multiple Exports** - Markdown and PDF output
+
+---
+
+## 🔄 How It Works
+
+### User Workflow
+
+```
+1. Upload Documents (PDFs, slides, notes)
+   ↓
+2. Define Course Structure (modules + topics)
+   ↓
+3. Configure Settings (detail level, speed mode)
+   ↓
+4. Generate Document (AI processes everything)
+   ↓
+5. Download Output (Markdown or PDF)
+```
+
+### Behind the Scenes
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    USER UPLOADS FILES                    │
+│              PDFs, Slides, Notes, Images                 │
+└────────────────────┬────────────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────────────────┐
+│              CACHING LAYER (Client-Side)                │
+│  • Check if files already processed                     │
+│  • Load chunks from localStorage (instant)              │
+│  • Check if full document cached                        │
+└────────────────────┬────────────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────────────────┐
+│         DOCUMENT PROCESSING & CHUNKING                  │
+│  • Extract text (pdf.js, fflate)                        │
+│  • Split into 800-char chunks (150 overlap)            │
+│  • Attach metadata (filename, position)                 │
+│  • Cache chunks for future use                          │
+└────────────────────┬────────────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────────────────┐
+│    STAGE 1: ANALYSIS (Gemini/Groq)                     │
+│  • Check cache for previous analysis                    │
+│  • Keyword search finds relevant chunks (8 per topic)   │
+│  • AI extracts: definitions, examples, code             │
+│  • Returns structured JSON                              │
+│  • Cache analysis results                               │
+│  • Cost: ~$0 (free tier)                                │
+└────────────────────┬────────────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────────────────┐
+│    STAGE 2: WRITING (OpenRouter/Groq)                  │
+│  • Takes extracted info from Stage 1                    │
+│  • Generates comprehensive study notes                  │
+│  • Includes: explanations, code, diagrams, Q&A          │
+│  • Returns complete topic content                       │
+│  • Cost: ~$0 (free models)                              │
+└────────────────────┬────────────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────────────────┐
+│         FINAL ASSEMBLY & EXPORT                         │
+│  • Combines all topics into master document             │
+│  • Adds: TOC, glossary, module overviews                │
+│  • Validates all content present                        │
+│  • Cache complete document                              │
+│  • Export to Markdown or PDF (jsPDF)                    │
+└─────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 🏗️ Architecture
+
+### Framework: Next.js 15 (App Router)
+
+Eclipse Theory is built on **Next.js 15** with the **App Router** architecture, providing:
+
+- ✅ **Server Components** - Optimized initial page load
+- ✅ **Client Components** - Interactive UI with React 19
+- ✅ **API Routes** - Input validation endpoint
+- ✅ **Static Generation** - Fast page delivery
+- ✅ **Edge Runtime** - Global CDN deployment
+
+### Component Structure
+
+```
+app/
+├── layout.js              # Root layout (fonts, metadata)
+├── page.js                # Main UI (client component)
+├── globals.css            # Tailwind-inspired styles
+│
+├── api/
+│   └── generate/
+│       └── route.js       # Input validation API
+│
+└── lib/
+    ├── gemini.js          # Multi-provider API client
+    ├── files.js           # Document processing
+    ├── markdown.js        # Document assembly
+    ├── chunking.js        # Smart text chunking
+    ├── twoStage.js        # Two-stage orchestration
+    └── cache.js           # Client-side caching
+```
+
+### Data Flow
+
+```
+User Input (page.js)
+    ↓
+Validation (api/generate/route.js)
+    ↓
+File Processing (files.js)
+    ↓
+Chunking (chunking.js)
+    ↓
+Cache Check (cache.js)
+    ↓
+Two-Stage Generation (twoStage.js)
+    ├─ Stage 1: Analysis (gemini.js)
+    └─ Stage 2: Writing (gemini.js)
+    ↓
+Assembly (markdown.js)
+    ↓
+Cache & Export (cache.js + jsPDF)
+```
+
+### State Management
+
+- **React Hooks** - `useState`, `useRef`, `useEffect`
+- **localStorage** - API keys, cache data
+- **No external state library** - Keeps bundle small
+
+### Styling Approach
+
+- **Custom CSS** - Tailwind-inspired utility classes
+- **CSS Variables** - Theme customization
+- **Responsive Design** - Mobile-first approach
+- **No CSS framework** - Lightweight, custom design
+
+---
+
 ## ✨ Features
 
-- 🤖 **Two-Stage AI Pipeline** - Separate analysis and writing for maximum accuracy
-- 📚 **Smart Document Processing** - Extracts content from PDFs, DOCX, PPTX, images
-- 🎯 **Intelligent Chunking** - Finds relevant sections for each topic
-- ⚡ **Speed Mode** - 3x faster generation with Groq
-- 💾 **Smart Caching** - Up to 480x faster regeneration
-- 🔄 **Multi-Provider** - Gemini, OpenRouter, Groq support
-- 📄 **Multiple Exports** - Markdown and PDF output
-- 🎨 **Professional Format** - Structured with TOC, glossary, examples
+### 1. Two-Stage AI Pipeline
+
+**Why Two Stages?**
+- **Reading documents is hard** - AI needs large context to understand
+- **Writing content is easy** - AI excels at generating structured text
+- **Separation of concerns** - Use best model for each task
+
+**Stage 1: Analysis (Gemini/Groq)**
+- Large context window (250K tokens)
+- Extracts key information from documents
+- Returns structured JSON data
+- Caches results for reuse
+
+**Stage 2: Writing (OpenRouter/Groq)**
+- Takes extracted info as input
+- Generates high-quality content
+- Adds explanations, examples, insights
+- Produces complete study notes
+
+### 2. Smart Document Chunking
+
+**Problem:** AI can't process entire 50-page PDFs at once
+
+**Solution:** Intelligent chunking system
+- Splits documents into 800-character chunks
+- 150-character overlap preserves context
+- Breaks at sentence boundaries
+- Attaches metadata (filename, position)
+
+**Retrieval:** Keyword-based search
+- Finds top 8 relevant chunks per topic
+- Reduces context from 12K → 3K chars
+- Improves accuracy and speed
+
+### 3. Multi-Provider Support
+
+**Supported Providers:**
+
+| Provider | Role | Context | Speed | Cost |
+|----------|------|---------|-------|------|
+| **Gemini** | Analyzer | 250K | Medium | Free |
+| **OpenRouter** | Writer | 1M | Medium | Free* |
+| **Groq** | Both | 128K | Fast | Free |
+
+*Free models available
+
+**Smart Selection:**
+- Automatically chooses best provider per task
+- Falls back if rate limits hit
+- Rotates between multiple keys
+
+### 4. Comprehensive Caching
+
+**What Gets Cached:**
+
+1. **Document Chunks** (5s savings per file)
+   - SHA-256 hash of file content
+   - Stored in localStorage
+   - Instant reload on re-upload
+
+2. **Analysis Results** (4s savings per topic)
+   - Extracted information from Stage 1
+   - Keyed by topic + document hashes
+   - Skips re-analysis for same content
+
+3. **Full Documents** (instant regeneration)
+   - Complete markdown output
+   - Keyed by course + structure + documents
+   - 480x faster for exact same config
+
+**Cache Management:**
+- Automatic cleanup (7 days old)
+- 50MB size limit
+- Manual clear option
+- Shows cache stats in UI
+
+### 5. Speed Mode
+
+**Normal Mode:**
+- Gemini analyzes (10 RPM)
+- OpenRouter writes (10 RPM)
+- ~3 minutes for 20 topics
+
+**Speed Mode (Groq):**
+- Groq analyzes (30 RPM)
+- Groq writes (30 RPM)
+- ~1 minute for 20 topics
+- **3x faster!**
+
+### 6. Validation & Fallbacks
+
+**Ensures Complete Output:**
+- Validates all topics have data
+- Provides fallback content if generation fails
+- Shows warning for incomplete topics
+- Guarantees exportable document
+
+**Fallback Content:**
+- Basic introduction
+- Generic steps
+- Placeholder sections
+- Clear "regenerate" message
+
+---
+
+## 🛠️ Tech Stack
+
+### Frontend
+- **Next.js 15** - React framework with App Router
+- **React 19** - UI library with latest features
+- **Custom CSS** - Tailwind-inspired styling
+- **localStorage** - Client-side caching
+
+### AI Providers
+- **Google Gemini** - Document analysis (250K context)
+- **OpenRouter** - High-quality writing
+- **Groq** - Fast inference (800+ tok/s)
+
+### Document Processing
+- **pdf.js** - PDF text extraction
+- **fflate** - ZIP/DOCX/PPTX processing
+- **jsPDF** - PDF export
+
+### Deployment
+- **Vercel** - Hosting and CDN
+- **Edge Runtime** - Global distribution
+- **Automatic CI/CD** - Git push to deploy
+
+### Development
+- **Node.js** - Runtime environment
+- **npm** - Package management
+- **Git** - Version control
+
+---
 
 ## 🚀 Quick Start
 
@@ -21,15 +327,16 @@ Transform your class notes, lecture slides, and study materials into comprehensi
 
 Choose one or more:
 
-- **Gemini** (Recommended for analysis): https://aistudio.google.com/apikey
-- **OpenRouter** (Recommended for writing): https://openrouter.ai/keys
-- **Groq** (Recommended for speed): https://console.groq.com/keys
+- **Gemini** (Recommended): https://aistudio.google.com/apikey
+- **OpenRouter**: https://openrouter.ai/keys
+- **Groq** (Fastest): https://console.groq.com/keys
 
 ### 2. Add Keys in App
 
 1. Click "API Keys" button
 2. Select provider and paste key
-3. Click "Add"
+3. Click "Test" to verify
+4. Click "Add" if test passes
 
 ### 3. Upload Documents
 
@@ -45,6 +352,8 @@ Drag & drop your PDFs, slides, or notes into the upload zone.
 
 Click "Generate Document" and wait 30 seconds to 5 minutes depending on size.
 
+---
+
 ## 📊 Performance
 
 | Configuration | 20 Topics | 50 Topics |
@@ -53,6 +362,18 @@ Click "Generate Document" and wait 30 seconds to 5 minutes depending on size.
 | **With Cache** | 0.5 sec | 1 sec |
 | **Speed Mode** | 1 min | 2.5 min |
 | **Speed + Cache** | 0.5 sec | 1 sec |
+
+### Rate Limits
+
+| Provider | Requests/Min | Requests/Day |
+|----------|--------------|--------------|
+| Gemini | 10 | 500 |
+| OpenRouter | 10 | Unlimited* |
+| Groq | 30 | 14,400 |
+
+*Free models
+
+---
 
 ## 🎯 Use Cases
 
@@ -74,92 +395,21 @@ Click "Generate Document" and wait 30 seconds to 5 minutes depending on size.
 - Study for certifications
 - Build personal knowledge base
 
-## 🏗️ Architecture
-
-```
-Upload Documents → Process & Chunk → Cache
-                                      ↓
-                            Stage 1: Analysis (Gemini/Groq)
-                                      ↓
-                            Stage 2: Writing (OpenRouter/Groq)
-                                      ↓
-                            Assemble & Export
-```
-
-### Two-Stage Pipeline
-
-**Stage 1: Analysis**
-- Gemini reads documents with 250K context window
-- Extracts definitions, examples, code snippets
-- Identifies key concepts and relationships
-- Caches results for future use
-
-**Stage 2: Writing**
-- OpenRouter generates high-quality content
-- Uses extracted info as foundation
-- Adds explanations, analogies, examples
-- Produces comprehensive study notes
-
-## 🔧 Configuration Modes
-
-### Optimal (Recommended)
-```
-✓ Gemini (analyzer)
-✓ OpenRouter (writer)
-✓ Groq (backup/speed)
-```
-**Result:** Best quality with speed option
-
-### Fast
-```
-✓ Groq only
-☑️ Speed Mode enabled
-```
-**Result:** 3x faster, good quality
-
-### Balanced
-```
-✓ Groq (analyzer)
-✓ OpenRouter (writer)
-```
-**Result:** Fast analysis + quality writing
-
-## 💾 Caching System
-
-### What Gets Cached
-
-1. **Document Chunks** - Processed files (5s savings per file)
-2. **Analysis Results** - Extracted info (4s savings per topic)
-3. **Full Documents** - Complete output (instant regeneration)
-
-### Cache Benefits
-
-- **First generation:** Normal speed
-- **Regeneration:** Up to 480x faster
-- **Partial changes:** Only regenerate changed topics
-- **Automatic management:** Clears old entries, manages size
+---
 
 ## 📖 Documentation
 
 - **[QUICK-START.md](QUICK-START.md)** - 5-minute setup guide
-- **[FINAL-SUMMARY.md](FINAL-SUMMARY.md)** - Complete system overview
-- **[TWO-STAGE-SYSTEM.md](TWO-STAGE-SYSTEM.md)** - Architecture details
-- **[GROQ-STRATEGIES.md](GROQ-STRATEGIES.md)** - Speed optimization guide
-- **[CACHING-GUIDE.md](CACHING-GUIDE.md)** - Caching system explained
+- **[GROQ-SUMMARY.md](GROQ-SUMMARY.md)** - Groq usage reference
 
-## 🛠️ Tech Stack
-
-- **Frontend:** Next.js 15, React 19
-- **AI Providers:** Gemini, OpenRouter, Groq
-- **Document Processing:** pdf.js, fflate
-- **Export:** jsPDF
-- **Storage:** localStorage (client-side caching)
+---
 
 ## 📦 Installation
 
 ```bash
 # Clone repository
-git clone https://github.com/yourusername/eclipse-theory.git
+git clone https://github.com/sameerreddy789/Eclipse_Theory.git
+cd Eclipse_Theory
 
 # Install dependencies
 npm install
@@ -169,20 +419,38 @@ npm run dev
 
 # Build for production
 npm run build
+
+# Start production server
+npm start
 ```
+
+Open http://localhost:3000 in your browser.
+
+---
 
 ## 🌐 Deployment
 
-Deploy to Vercel with one click:
+### Deploy to Vercel (Recommended)
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/yourusername/eclipse-theory)
+1. Push code to GitHub
+2. Import project in Vercel
+3. Deploy automatically
+4. Get production URL
 
-Or deploy manually:
+Or use the deploy button:
+
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/sameerreddy789/Eclipse_Theory)
+
+### Manual Deployment
 
 ```bash
 npm run build
 npm start
 ```
+
+Runs on port 3000 by default.
+
+---
 
 ## 🔒 Privacy & Security
 
@@ -191,6 +459,8 @@ npm start
 - ✅ **No server storage** - All caching is client-side
 - ✅ **Secure hashing** - SHA-256 for cache keys
 - ✅ **Automatic cleanup** - Old caches removed after 7 days
+
+---
 
 ## 💰 Cost
 
@@ -208,13 +478,19 @@ npm start
 - **OpenRouter (Claude):** ~$0.30 per 20 topics
 - **Groq:** ~$0.15 per 20 topics (3x cheaper)
 
+---
+
 ## 🤝 Contributing
 
 Contributions welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) first.
 
+---
+
 ## 📝 License
 
 MIT License - see [LICENSE](LICENSE) file for details.
+
+---
 
 ## 🙏 Acknowledgments
 
@@ -224,11 +500,14 @@ MIT License - see [LICENSE](LICENSE) file for details.
 - pdf.js for PDF processing
 - Next.js team for the framework
 
+---
+
 ## 📧 Support
 
-- **Issues:** [GitHub Issues](https://github.com/yourusername/eclipse-theory/issues)
-- **Discussions:** [GitHub Discussions](https://github.com/yourusername/eclipse-theory/discussions)
-- **Email:** support@eclipse-theory.com
+- **Issues:** [GitHub Issues](https://github.com/sameerreddy789/Eclipse_Theory/issues)
+- **Discussions:** [GitHub Discussions](https://github.com/sameerreddy789/Eclipse_Theory/discussions)
+
+---
 
 ## 🗺️ Roadmap
 
@@ -237,6 +516,7 @@ MIT License - see [LICENSE](LICENSE) file for details.
 - ✅ Smart caching system
 - ✅ Multi-provider support
 - ✅ Speed Mode
+- ✅ Validation & fallbacks
 
 ### v2.2 (Next)
 - [ ] Semantic embeddings
@@ -249,10 +529,6 @@ MIT License - see [LICENSE](LICENSE) file for details.
 - [ ] Collaborative features
 - [ ] Advanced analytics
 - [ ] Custom templates
-
-## ⭐ Star History
-
-If you find Eclipse Theory useful, please star the repository!
 
 ---
 
