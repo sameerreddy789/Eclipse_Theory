@@ -162,8 +162,8 @@ export default function Home() {
     
     // Check key configuration
     const keyStats = getKeyStats(apiKeys);
-    if (!keyStats.hasAnalyzer && !keyStats.hasWriter) {
-      showToast("Add at least Gemini or OpenRouter key");
+    if (keyStats.mode === "none") {
+      showToast("Add at least one API key (Gemini, OpenRouter, or Groq)");
       setShowKeyInput(true);
       return;
     }
@@ -175,6 +175,8 @@ export default function Home() {
       showToast("Single-stage mode: Gemini only (add OpenRouter for better quality)");
     } else if (keyStats.mode === "openrouter-only") {
       showToast("Single-stage mode: OpenRouter only (add Gemini for document analysis)");
+    } else if (keyStats.mode === "groq-only") {
+      showToast("Fast mode: Groq only (add others for better quality)");
     }
     
     keyIndexRef.current = 0;
