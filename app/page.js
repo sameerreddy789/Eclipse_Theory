@@ -818,42 +818,51 @@ export default function Home() {
                   onChange={(e) => { handleGlobalFiles(e.target.files); e.target.value = ""; }}
                 />
                 {/* Debug: Show actual state */}
-                <div style={{ padding: 8, background: '#f0f0f0', fontSize: 11, fontFamily: 'monospace' }}>
-                  DEBUG: globalFiles.length = {globalFiles.length}, isEmpty = {globalFiles.length === 0 ? 'true' : 'false'}, hasFiles = {globalFiles.length > 0 ? 'true' : 'false'}
+                <div style={{ padding: 8, background: '#f0f0f0', fontSize: 11, fontFamily: 'monospace', marginBottom: 8 }}>
+                  DEBUG: files={globalFiles.length}, key={fileUploadKey}
                 </div>
-                {!globalFiles || globalFiles.length === 0 ? (
-                  <div className="upload-zone-empty">
-                    <UploadIcon size={20} />
-                    <span>Drop files here or click to browse</span>
-                    <span className="upload-zone-hint">PDF, PPT, DOC, images, text files</span>
-                  </div>
-                ) : (
-                  <div className="upload-zone-files" onClick={(e) => e.stopPropagation()}>
-                    <div className="upload-zone-header">
-                      <span className="upload-zone-count">{globalFiles.length} file{globalFiles.length > 1 ? "s" : ""} uploaded</span>
-                      <label className="btn-add-more" onClick={(e) => e.stopPropagation()}>
-                        <PlusIcon /> Add more
-                        <input
-                          type="file"
-                          multiple
-                          accept="*/*"
-                          style={{ display: "none" }}
-                          onChange={(e) => { handleGlobalFiles(e.target.files); e.target.value = ""; }}
-                        />
-                      </label>
+                {(() => {
+                  const hasFiles = globalFiles && globalFiles.length > 0;
+                  console.log('[Render] hasFiles:', hasFiles, 'length:', globalFiles?.length);
+                  
+                  if (!hasFiles) {
+                    return (
+                      <div className="upload-zone-empty">
+                        <UploadIcon size={20} />
+                        <span>Drop files here or click to browse</span>
+                        <span className="upload-zone-hint">PDF, PPT, DOC, images, text files</span>
+                      </div>
+                    );
+                  }
+                  
+                  return (
+                    <div className="upload-zone-files" onClick={(e) => e.stopPropagation()}>
+                      <div className="upload-zone-header">
+                        <span className="upload-zone-count">{globalFiles.length} file{globalFiles.length > 1 ? "s" : ""} uploaded</span>
+                        <label className="btn-add-more" onClick={(e) => e.stopPropagation()}>
+                          <PlusIcon /> Add more
+                          <input
+                            type="file"
+                            multiple
+                            accept="*/*"
+                            style={{ display: "none" }}
+                            onChange={(e) => { handleGlobalFiles(e.target.files); e.target.value = ""; }}
+                          />
+                        </label>
+                      </div>
+                      <div className="file-list">
+                        {globalFiles.map((file, fi) => (
+                          <div className="file-chip" key={fi}>
+                            <span className="file-type-badge">{getFileIcon(file)}</span>
+                            <span className="file-name">{file.name}</span>
+                            <span className="file-size">{formatFileSize(file.size)}</span>
+                            <button type="button" className="file-remove" onClick={(e) => { e.stopPropagation(); removeGlobalFile(fi); }} aria-label={`Remove ${file.name}`}><XIcon /></button>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                    <div className="file-list">
-                      {globalFiles.map((file, fi) => (
-                        <div className="file-chip" key={fi}>
-                          <span className="file-type-badge">{getFileIcon(file)}</span>
-                          <span className="file-name">{file.name}</span>
-                          <span className="file-size">{formatFileSize(file.size)}</span>
-                          <button type="button" className="file-remove" onClick={(e) => { e.stopPropagation(); removeGlobalFile(fi); }} aria-label={`Remove ${file.name}`}><XIcon /></button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                  );
+                })()}
               </div>
             </div>
 
