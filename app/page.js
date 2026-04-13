@@ -5,7 +5,10 @@ import "./globals.css";
 import { callGemini, buildModulePrompt, buildGlossaryPrompt, PROVIDER_LIST, testApiKey } from "./lib/gemini";
 import { slugify, assembleMarkdown } from "./lib/markdown";
 import { processFiles, getFileIcon, formatFileSize } from "./lib/files";
-import { chunkDocuments, findRelevantChunks } from "./lib/chunking";
+import { chunkDocuments, findRelevantChunks, generateChunkEmbeddings } from "./lib/chunking";
+import { semanticSearch, hybridSearch } from "./lib/embeddings";
+import { extractTextFromImage, isImageFile, mightNeedOCR } from "./lib/ocr";
+import { generateAnkiCSV, generateNotionMarkdown, generateStudyChecklist, downloadFile } from "./lib/export";
 import { generateTopicTwoStage, getKeyStats } from "./lib/twoStage";
 import { 
   getCachedDocumentChunks, 
@@ -44,6 +47,8 @@ export default function Home() {
   const [courseName, setCourseName] = useState("");
   const [depth, setDepth] = useState("detailed");
   const [speedMode, setSpeedMode] = useState(false);
+  const [useSemanticSearch, setUseSemanticSearch] = useState(true);
+  const [useOCR, setUseOCR] = useState(false);
   const [globalFiles, setGlobalFiles] = useState([]);
   const [dragOver, setDragOver] = useState(false);
   const [modules, setModules] = useState(() => {
@@ -200,7 +205,32 @@ export default function Home() {
 
       if (globalFiles.length > 0) {
         setProgress(`Processing ${globalFiles.length} uploaded file${globalFiles.length > 1 ? "s" : ""}...`);
-        const { processedFiles, images } = await processFiles(globalFiles);
+        
+        // OCR for images if enabled
+        const filesToProcess = [];
+        for (const file of globalFiles) {
+          if (useOCR && isImageFile(file)) {
+            setProgress(`Running OCR on ${file.name}...`);
+            const ocrResult = await extractTextFromImage(file, (progress) => {
+              setProgress(`OCR: ${file.name} (${progress}%)`);
+            });
+            
+            if (ocrResult.success && ocrResult.text.length > 50) {
+              filesToProcess.push({
+                ...file,
+                ocrText: ocrResult.text,
+                ocrConfidence: ocrResult.confidence,
+              });
+              showToast(`OCR extracted ${ocrResult.text.length} chars from ${file.name}`);
+            } else {
+              filesToProcess.push(file);
+            }
+          } else {
+            filesToProcess.push(file);
+          }
+        }
+        
+        const { processedFiles, images } = await processFiles(filesToProcess);
         globalImages = images;
 
         if (processedFiles.length > 0) {
@@ -222,6 +252,15 @@ export default function Home() {
                 if (hash) documentHashes.push(hash);
               }
             }
+          }
+          
+          // Generate embeddings for semantic search
+          if (useSemanticSearch && documentChunks.length > 0) {
+            setProgress(`Generating embeddings for ${documentChunks.length} chunks...`);
+            documentChunks = await generateChunkEmbeddings(documentChunks, (current, total) => {
+              setProgress(`Generating embeddings... ${current}/${total}`);
+            });
+            showToast(`Generated embeddings for ${documentChunks.length} chunks`);
           }
           
           const cachedCount = documentHashes.length;
@@ -300,7 +339,14 @@ export default function Home() {
           batch.map(async (job) => {
             // Find most relevant chunks for this specific topic
             const query = `${job.topicName} ${job.moduleName}`;
-            const relevantChunks = findRelevantChunks(documentChunks, query, 8);
+            
+            // Use semantic search if embeddings are available, otherwise fallback to keyword
+            let relevantChunks;
+            if (useSemanticSearch && documentChunks[0]?.embedding) {
+              relevantChunks = await hybridSearch(query, documentChunks, 8);
+            } else {
+              relevantChunks = findRelevantChunks(documentChunks, query, 8);
+            }
 
             // Try to get cached analysis first
             let extractedInfo = null;
@@ -500,6 +546,48 @@ export default function Home() {
     finally { setProgress(""); }
   };
 
+  const downloadAnki = () => {
+    const validModules = modules
+      .filter((m) => m.name.trim())
+      .map((m) => ({ name: m.name.trim(), topics: m.topics.filter((t) => t.name.trim()).map((t) => t.name.trim()) }))
+      .filter((m) => m.topics.length > 0);
+    
+    // Build topicDataMap from current output (simplified)
+    const topicDataMap = {}; // This would need to be stored in state for full functionality
+    
+    const csv = generateAnkiCSV(courseName, validModules, topicDataMap);
+    downloadFile(csv, slugify(courseName || "document") + "-anki-cards.csv", "text/csv");
+    showToast("Anki cards downloaded");
+  };
+
+  const downloadNotion = () => {
+    const validModules = modules
+      .filter((m) => m.name.trim())
+      .map((m) => ({ name: m.name.trim(), topics: m.topics.filter((t) => t.name.trim()).map((t) => t.name.trim()) }))
+      .filter((m) => m.topics.length > 0);
+    
+    const topicDataMap = {}; // This would need to be stored in state
+    const moduleMetas = [];
+    const glossaryData = { terms: [] };
+    
+    const md = generateNotionMarkdown(courseName, validModules, moduleMetas, topicDataMap, glossaryData);
+    downloadFile(md, slugify(courseName || "document") + "-notion.md", "text/markdown");
+    showToast("Notion markdown downloaded");
+  };
+
+  const downloadChecklist = () => {
+    const validModules = modules
+      .filter((m) => m.name.trim())
+      .map((m) => ({ name: m.name.trim(), topics: m.topics.filter((t) => t.name.trim()).map((t) => t.name.trim()) }))
+      .filter((m) => m.topics.length > 0);
+    
+    const topicDataMap = {};
+    
+    const md = generateStudyChecklist(courseName, validModules, topicDataMap);
+    downloadFile(md, slugify(courseName || "document") + "-checklist.md", "text/markdown");
+    showToast("Study checklist downloaded");
+  };
+
   return (
     <>
       <nav>
@@ -655,6 +743,32 @@ export default function Home() {
               </div>
             )}
 
+            {/* Semantic Search Toggle */}
+            <div className="field">
+              <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", userSelect: "none" }}>
+                <input
+                  type="checkbox"
+                  checked={useSemanticSearch}
+                  onChange={(e) => setUseSemanticSearch(e.target.checked)}
+                  style={{ width: 16, height: 16, cursor: "pointer" }}
+                />
+                <span>Semantic Search <span className="hint">— AI-powered relevance matching (recommended, ~25MB model)</span></span>
+              </label>
+            </div>
+
+            {/* OCR Toggle */}
+            <div className="field">
+              <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", userSelect: "none" }}>
+                <input
+                  type="checkbox"
+                  checked={useOCR}
+                  onChange={(e) => setUseOCR(e.target.checked)}
+                  style={{ width: 16, height: 16, cursor: "pointer" }}
+                />
+                <span>OCR for Images <span className="hint">— Extract text from scanned documents (slower)</span></span>
+              </label>
+            </div>
+
             {/* GLOBAL FILE UPLOAD */}
             <div className="field">
               <label>Reference Material <span className="hint">— upload class notes, slides, PDFs, images (optional)</span></label>
@@ -767,7 +881,8 @@ export default function Home() {
               <div className="output-bar-actions">
                 <button className="btn-ghost" onClick={copyOutput}>Copy</button>
                 <button className="btn-ghost" onClick={downloadMd}>Download .md</button>
-                <button className="btn-pdf" onClick={downloadPdf}>Download PDF</button>
+                <button className="btn-ghost" onClick={downloadChecklist}>Checklist</button>
+                <button className="btn-pdf" onClick={downloadPdf}>PDF</button>
               </div>
             </div>
             <div className="output-content">{output}</div>

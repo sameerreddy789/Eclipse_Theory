@@ -1,7 +1,9 @@
 /**
- * Smart document chunking with semantic boundaries.
+ * Smart document chunking with semantic boundaries and embeddings.
  * Splits text into meaningful chunks while preserving context.
  */
+
+import { generateEmbedding } from './embeddings';
 
 const CHUNK_SIZE = 800; // characters per chunk
 const CHUNK_OVERLAP = 150; // overlap to preserve context
@@ -66,6 +68,32 @@ export function chunkDocuments(processedFiles) {
   }
 
   return allChunks;
+}
+
+/**
+ * Generate embeddings for all chunks (with progress callback)
+ */
+export async function generateChunkEmbeddings(chunks, onProgress = null) {
+  console.log(`[Embeddings] Generating embeddings for ${chunks.length} chunks...`);
+  
+  const chunksWithEmbeddings = [];
+  
+  for (let i = 0; i < chunks.length; i++) {
+    const chunk = chunks[i];
+    const embedding = await generateEmbedding(chunk.text);
+    
+    chunksWithEmbeddings.push({
+      ...chunk,
+      embedding,
+    });
+    
+    if (onProgress) {
+      onProgress(i + 1, chunks.length);
+    }
+  }
+  
+  console.log(`[Embeddings] Generated ${chunksWithEmbeddings.length} embeddings`);
+  return chunksWithEmbeddings;
 }
 
 /**

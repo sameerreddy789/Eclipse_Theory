@@ -29,7 +29,16 @@ export function renderTopicMarkdown(tNum, topicName, d) {
   s += `\n---\n\n`;
 
   s += `### 🖼️ 2. Visual Representation\n\n`;
-  s += `**Diagram: ${topicName}**\n\n\`\`\`\n${d.diagram || "No diagram available"}\n\`\`\`\n\n---\n\n`;
+  s += `**Diagram: ${topicName}**\n\n`;
+  
+  // Check if diagram is Mermaid syntax
+  if (d.diagram && d.diagram.trim().startsWith('graph') || d.diagram?.includes('flowchart')) {
+    s += `\`\`\`mermaid\n${d.diagram}\n\`\`\`\n\n`;
+  } else {
+    s += `\`\`\`\n${d.diagram || "No diagram available"}\n\`\`\`\n\n`;
+  }
+  
+  s += `---\n\n`;
 
   s += `### 💡 3. Practical Application\n\n`;
   s += `#### 🔸 Real-World Analogy\n\n${d.realWorldAnalogy || ""}\n\n`;
