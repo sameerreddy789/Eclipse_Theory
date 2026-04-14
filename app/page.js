@@ -247,11 +247,6 @@ export default function Home() {
     setExtractionError("");
   };
 
-  const updateCacheStats = () => {
-    const stats = getCacheStats();
-    setCacheStats(stats);
-  };
-
   const showToast = useCallback((msg) => {
     setToast(msg);
     setTimeout(() => setToast(""), 2200);
