@@ -30,6 +30,7 @@ import {
   formatHistoryDate,
   formatHistorySize,
 } from "./lib/history";
+import MarkdownPreview from "./components/MarkdownPreview";
 
 function XIcon() {
   return (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>);
@@ -71,6 +72,9 @@ export default function Home() {
   const [showHistory, setShowHistory] = useState(false);
   const [history, setHistory] = useState([]);
   const [historyStats, setHistoryStats] = useState({ totalDocuments: 0, totalTopics: 0, totalSizeMB: "0.00" });
+  
+  // Preview mode state
+  const [previewMode, setPreviewMode] = useState("preview"); // "preview" or "markdown"
   
   // Force re-render when files change
   useEffect(() => {
@@ -1078,13 +1082,33 @@ export default function Home() {
                 Generated Document
               </h2>
               <div className="output-bar-actions">
+                <div className="preview-toggle">
+                  <button
+                    className={previewMode === "preview" ? "active" : ""}
+                    onClick={() => setPreviewMode("preview")}
+                  >
+                    Preview
+                  </button>
+                  <button
+                    className={previewMode === "markdown" ? "active" : ""}
+                    onClick={() => setPreviewMode("markdown")}
+                  >
+                    Markdown
+                  </button>
+                </div>
                 <button className="btn-ghost" onClick={copyOutput}>Copy</button>
                 <button className="btn-ghost" onClick={downloadMd}>Download .md</button>
                 <button className="btn-ghost" onClick={downloadChecklist}>Checklist</button>
                 <button className="btn-pdf" onClick={downloadPdf}>PDF</button>
               </div>
             </div>
-            <div className="output-content">{output}</div>
+            {previewMode === "preview" ? (
+              <div style={{ background: "#f5f5f5", minHeight: "600px", overflow: "auto" }}>
+                <MarkdownPreview markdown={output} />
+              </div>
+            ) : (
+              <div className="output-content">{output}</div>
+            )}
           </div>
         </section>
       )}
