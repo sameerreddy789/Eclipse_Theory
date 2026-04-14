@@ -21,6 +21,15 @@ import {
   clearAllCaches,
   clearOldCaches,
 } from "./lib/cache";
+import {
+  saveToHistory,
+  getHistory,
+  deleteHistoryItem,
+  clearHistory,
+  getHistoryStats,
+  formatHistoryDate,
+  formatHistorySize,
+} from "./lib/history";
 
 function XIcon() {
   return (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>);
@@ -33,6 +42,12 @@ function KeyIcon() {
 }
 function UploadIcon({ size = 14 }) {
   return (<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" /></svg>);
+}
+function HistoryIcon() {
+  return (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>);
+}
+function TrashIcon() {
+  return (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg>);
 }
 
 let nextModuleId = 0;
@@ -51,6 +66,11 @@ export default function Home() {
   const [useOCR, setUseOCR] = useState(false);
   const [globalFiles, setGlobalFiles] = useState([]);
   const [, forceUpdate] = useState({});
+  
+  // History state
+  const [showHistory, setShowHistory] = useState(false);
+  const [history, setHistory] = useState([]);
+  const [historyStats, setHistoryStats] = useState({ totalDocuments: 0, totalTopics: 0, totalSizeMB: "0.00" });
   
   // Force re-render when files change
   useEffect(() => {
@@ -79,12 +99,50 @@ export default function Home() {
     // Clear old caches on mount
     clearOldCaches(7);
     updateCacheStats();
+    updateHistoryStats();
   }, []);
 
   useEffect(() => {
     const stats = getKeyStats(apiKeys);
     setKeyMode(stats.mode);
   }, [apiKeys]);
+
+  const updateCacheStats = () => {
+    const stats = getCacheStats();
+    setCacheStats(stats);
+  };
+
+  const updateHistoryStats = () => {
+    const hist = getHistory();
+    const stats = getHistoryStats();
+    setHistory(hist);
+    setHistoryStats(stats);
+  };
+
+  const loadHistoryItem = (item) => {
+    setOutput(item.output);
+    setCourseName(item.courseName);
+    setShowHistory(false);
+    showToast(`Loaded: ${item.courseName}`);
+    setTimeout(() => outputRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
+  };
+
+  const deleteHistory = (id, e) => {
+    e.stopPropagation();
+    if (confirm("Delete this document from history?")) {
+      deleteHistoryItem(id);
+      updateHistoryStats();
+      showToast("Document deleted from history");
+    }
+  };
+
+  const clearAllHistory = () => {
+    if (confirm(`Delete all ${history.length} documents from history? This cannot be undone.`)) {
+      clearHistory();
+      updateHistoryStats();
+      showToast("History cleared");
+    }
+  };
 
   const updateCacheStats = () => {
     const stats = getCacheStats();
@@ -509,6 +567,16 @@ export default function Home() {
       const md = assembleMarkdown({ courseName: courseName.trim(), depth, modules: validModules, moduleMetas, topicDataMap, glossaryData });
       setOutput(md);
       
+      // Save to history
+      saveToHistory(courseName.trim(), validModules, md, {
+        depth,
+        fileCount: globalFiles.length,
+        useSemanticSearch,
+        useOCR,
+        speedMode,
+      });
+      updateHistoryStats();
+      
       // Cache the final document
       if (documentHashes.length > 0) {
         await cacheGeneratedDocument(courseName.trim(), validModules, documentHashes, md);
@@ -627,6 +695,9 @@ export default function Home() {
             Eclipse Theory
           </div>
           <div className="nav-right">
+            <button className={`api-key-btn ${history.length > 0 ? "saved" : ""}`} onClick={() => setShowHistory(!showHistory)}>
+              <HistoryIcon /> {history.length > 0 ? `${history.length} Doc${history.length > 1 ? "s" : ""}` : "History"}
+            </button>
             <button className={`api-key-btn ${apiKeys.length > 0 ? "saved" : ""}`} onClick={() => setShowKeyInput(!showKeyInput)}>
               <KeyIcon /> {apiKeys.length > 0 ? `${apiKeys.length} Key${apiKeys.length > 1 ? "s" : ""}` : "API Keys"}
             </button>
@@ -715,6 +786,97 @@ export default function Home() {
                     {cacheStats.counts.analysis > 0 && `${cacheStats.counts.analysis} analyses, `}
                     {cacheStats.counts.document > 0 && `${cacheStats.counts.document} full docs`}
                   </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+        {showHistory && (
+          <div className="api-key-panel">
+            <div className="api-key-panel-inner">
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                <label>Document History <span className="hint">— {historyStats.totalDocuments} document{historyStats.totalDocuments !== 1 ? "s" : ""}, {historyStats.totalTopics} topics</span></label>
+                {history.length > 0 && (
+                  <button
+                    onClick={clearAllHistory}
+                    style={{ fontSize: 10, padding: "3px 8px", background: "none", border: "1px solid var(--border)", borderRadius: 4, color: "var(--text-dim)", cursor: "pointer" }}
+                  >
+                    Clear All
+                  </button>
+                )}
+              </div>
+              {history.length === 0 ? (
+                <div style={{ padding: "40px 20px", textAlign: "center", color: "var(--text-muted)", fontSize: 13 }}>
+                  <HistoryIcon />
+                  <p style={{ marginTop: 8 }}>No documents generated yet</p>
+                  <p style={{ fontSize: 11, color: "var(--text-dim)" }}>Your generated documents will appear here</p>
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 400, overflowY: "auto" }}>
+                  {history.map((item) => (
+                    <div
+                      key={item.id}
+                      onClick={() => loadHistoryItem(item)}
+                      style={{
+                        padding: "12px",
+                        background: "var(--bg-input)",
+                        border: "1px solid var(--border)",
+                        borderRadius: 6,
+                        cursor: "pointer",
+                        transition: "all 0.15s ease",
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.borderColor = "var(--accent)";
+                        e.currentTarget.style.background = "var(--bg-hover)";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.borderColor = "var(--border)";
+                        e.currentTarget.style.background = "var(--bg-input)";
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", marginBottom: 6 }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontWeight: 600, fontSize: 13, color: "var(--text)", marginBottom: 4 }}>
+                            {item.courseName}
+                          </div>
+                          <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                            {item.moduleCount} module{item.moduleCount !== 1 ? "s" : ""} · {item.topicCount} topic{item.topicCount !== 1 ? "s" : ""}
+                            {item.fileCount > 0 && ` · ${item.fileCount} file${item.fileCount !== 1 ? "s" : ""}`}
+                          </div>
+                        </div>
+                        <button
+                          onClick={(e) => deleteHistory(item.id, e)}
+                          style={{
+                            padding: 4,
+                            background: "none",
+                            border: "none",
+                            cursor: "pointer",
+                            color: "var(--text-dim)",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.color = "#ef4444";
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.color = "var(--text-dim)";
+                          }}
+                        >
+                          <TrashIcon />
+                        </button>
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 10, color: "var(--text-dim)" }}>
+                        <span>{formatHistoryDate(item.timestamp)}</span>
+                        <span>{formatHistorySize(item.output)} · {item.depth}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {historyStats.totalSizeMB > 0 && (
+                <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px dashed var(--border)", fontSize: 10, color: "var(--text-dim)", textAlign: "center" }}>
+                  Total storage: {historyStats.totalSizeMB} MB
                 </div>
               )}
             </div>
