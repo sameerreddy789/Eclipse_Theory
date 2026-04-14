@@ -133,13 +133,24 @@ async function extractOfficeText(file) {
   // DOCX and PPTX are ZIP files containing XML
   // We'll use a simple approach: read the zip, find XML files, extract text nodes
   try {
-    const { default: fflate } = await import("fflate");
+    const fflateModule = await import("fflate");
+    const unzip = fflateModule.unzip || fflateModule.default?.unzip;
+    
+    if (!unzip) {
+      console.warn("fflate.unzip not available");
+      return "";
+    }
+    
     const arrayBuffer = await file.arrayBuffer();
     const uint8 = new Uint8Array(arrayBuffer);
 
     return new Promise((resolve) => {
-      fflate.unzip(uint8, (err, files) => {
-        if (err) { resolve(""); return; }
+      unzip(uint8, (err, files) => {
+        if (err) { 
+          console.warn("fflate unzip error:", err);
+          resolve(""); 
+          return; 
+        }
 
         const textParts = [];
         const xmlFiles = Object.keys(files).filter(
@@ -162,7 +173,8 @@ async function extractOfficeText(file) {
         resolve(textParts.join("\n\n"));
       });
     });
-  } catch {
+  } catch (err) {
+    console.warn("Office text extraction failed:", err);
     return "";
   }
 }

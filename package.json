@@ -9,9 +9,10 @@
   },
   "dependencies": {
     "@xenova/transformers": "^2.17.2",
-    "jspdf": "^4.2.1",
+    "markdown-it": "^14.1.0",
     "next": "^15.3.2",
     "pdfjs-dist": "^4.9.155",
+    "puppeteer": "^23.11.1",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "tesseract.js": "^7.0.0"

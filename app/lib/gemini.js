@@ -333,9 +333,27 @@ Return ONLY valid JSON:
 }
 
 export function buildGlossaryPrompt(courseName, allTopics) {
-  return `Glossary of 8-15 terms for "${courseName}": ${allTopics.join(", ")}.
-Return ONLY valid JSON:
-{"terms":[{"term":"name","definition":"definition","firstSeen":"Module X, Topic Y"}]}`;
+  return `You are creating a comprehensive glossary for a course called "${courseName}".
+
+The course covers these topics: ${allTopics.join(", ")}
+
+Create a glossary with 10-15 key technical terms from this course. For each term:
+1. Choose the most important technical terms, concepts, or jargon
+2. Provide a clear, concise definition (1-2 sentences)
+3. Indicate which module/topic it first appears in
+
+Return ONLY valid JSON in this exact format:
+{
+  "terms": [
+    {
+      "term": "Term Name",
+      "definition": "Clear definition of the term in 1-2 sentences.",
+      "firstSeen": "Module 1, Topic: Introduction"
+    }
+  ]
+}
+
+Make sure to include terms that students would need to understand to master this course.`;
 }
 
 // ── API KEY TESTING ──

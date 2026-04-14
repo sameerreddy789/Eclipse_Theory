@@ -457,21 +457,35 @@ export default function Home() {
         updateCacheStats();
       }
 
-      // Phase 3: Glossary (with error handling)
+      // Phase 3: Glossary (with error handling and better provider selection)
       setProgress("Generating glossary...");
       const allTopicNames = validModules.flatMap((m) => m.topics);
       let glossaryData = { terms: [] };
       
       try {
+        // Use writer key for better quality glossary generation
+        const glossaryKey = apiKeys.find((k) => k.providerId === "openrouter") || 
+                           apiKeys.find((k) => k.providerId === "groq") || 
+                           analyzerKey;
+        
+        const systemPrompt = "You are an expert educator creating a comprehensive glossary for students. Focus on technical terms and key concepts.";
+        
         const result = await callGemini(
-          analyzerKey,
-          buildGlossaryPrompt(courseName.trim(), allTopicNames)
+          glossaryKey,
+          buildGlossaryPrompt(courseName.trim(), allTopicNames),
+          [],
+          2,
+          { systemPrompt }
         );
-        if (result) {
+        
+        if (result && result.terms && result.terms.length > 0) {
           glossaryData = result;
+          showToast(`Generated glossary with ${result.terms.length} terms`);
+        } else {
+          console.warn("Glossary generation returned empty or invalid result");
         }
       } catch (err) {
-        console.warn("Glossary generation failed, using empty glossary");
+        console.warn("Glossary generation failed:", err);
       }
 
       // Phase 4: Assemble with validation
@@ -521,55 +535,41 @@ export default function Home() {
     a.download = fn; a.click(); URL.revokeObjectURL(a.href); showToast("Downloaded " + fn);
   };
   const downloadPdf = async () => {
-    setProgress("Generating PDF...");
+    setProgress("Converting markdown to PDF...");
     try {
-      const { jsPDF } = await import("jspdf");
-      const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-      const pageW = doc.internal.pageSize.getWidth(), pageH = doc.internal.pageSize.getHeight();
-      const mL = 18, mR = 18, mT = 22, mB = 20, cW = pageW - mL - mR;
-      let y = mT;
-      const check = (n = 10) => { if (y + n > pageH - mB) { doc.addPage(); y = mT; } };
-      for (const line of output.split("\n")) {
-        const t = line.trimEnd();
-        if (t.startsWith("# 📘") || t.startsWith("# 🧩") || t.startsWith("# 📚")) {
-          check(20); doc.setFont("helvetica", "bold").setFontSize(16).setTextColor(23, 23, 23);
-          const sp = doc.splitTextToSize(t.replace(/^#+\s*/, "").replace(/[📘🧩📚📑🔹📖🖼️💡🔑🎯✅❌🔗📝📋🏋️]/g, "").trim(), cW);
-          check(sp.length * 7); doc.text(sp, mL, y); y += sp.length * 7 + 4;
-        } else if (t.startsWith("## ")) {
-          check(16); doc.setFont("helvetica", "bold").setFontSize(13).setTextColor(23, 23, 23);
-          const sp = doc.splitTextToSize(t.replace(/^#+\s*/, "").replace(/[📘🧩📚📑🔹📖🖼️💡🔑🎯✅❌🔗📝📋🏋️]/g, "").trim(), cW);
-          check(sp.length * 6); doc.text(sp, mL, y); y += sp.length * 6 + 3;
-        } else if (t.startsWith("### ") || t.startsWith("#### ")) {
-          check(12); doc.setFont("helvetica", "bold").setFontSize(11).setTextColor(64, 64, 64);
-          const sp = doc.splitTextToSize(t.replace(/^#+\s*/, "").replace(/[📘🧩📚📑🔹📖🖼️💡🔑🎯✅❌🔗📝📋🏋️🔸]/g, "").trim(), cW);
-          check(sp.length * 5); doc.text(sp, mL, y); y += sp.length * 5 + 2;
-        } else if (t.startsWith("---")) {
-          check(6); doc.setDrawColor(229, 229, 229).setLineWidth(0.3); doc.line(mL, y, pageW - mR, y); y += 4;
-        } else if (t.startsWith("> ")) {
-          check(10); doc.setFont("helvetica", "italic").setFontSize(9).setTextColor(82, 82, 82);
-          const sp = doc.splitTextToSize(t.replace(/^>\s*/, "").replace(/\*\*/g, ""), cW - 6);
-          check(sp.length * 4.5); doc.setFillColor(250, 250, 250); doc.rect(mL, y - 3, cW, sp.length * 4.5 + 4, "F");
-          doc.text(sp, mL + 3, y); y += sp.length * 4.5 + 3;
-        } else if (t.startsWith("| ") && t.includes("|")) {
-          if (t.match(/^\|[\s-|]+\|$/)) continue;
-          check(8); doc.setFont("helvetica", "normal").setFontSize(8).setTextColor(64, 64, 64);
-          const sp = doc.splitTextToSize(t.split("|").filter(Boolean).map((c) => c.trim()).join("  |  "), cW);
-          check(sp.length * 4); doc.text(sp, mL, y); y += sp.length * 4 + 1;
-        } else if (t.startsWith("```")) { continue;
-        } else if (t.match(/^\d+\.\s/) || t.startsWith("- ")) {
-          check(8); doc.setFont("helvetica", "normal").setFontSize(9.5).setTextColor(40, 40, 40);
-          const sp = doc.splitTextToSize(t.replace(/\*\*/g, "").replace(/[❌✅]/g, "").trim(), cW - 6);
-          check(sp.length * 4.5); doc.text(sp, mL + 4, y); y += sp.length * 4.5 + 1;
-        } else if (t.length > 0) {
-          check(8); doc.setFont("helvetica", "normal").setFontSize(9.5).setTextColor(40, 40, 40);
-          const sp = doc.splitTextToSize(t.replace(/\*\*/g, "").replace(/_/g, ""), cW);
-          check(sp.length * 4.5); doc.text(sp, mL, y); y += sp.length * 4.5 + 1;
-        } else { y += 2; }
+      // Call server-side API to generate PDF
+      const response = await fetch("/api/pdf", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          markdown: output,
+          filename: slugify(courseName || "document") + "-master-learning-doc",
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "PDF generation failed");
       }
-      doc.save(slugify(courseName || "document") + "-master-learning-doc.pdf");
-      showToast("PDF downloaded");
-    } catch (err) { console.error(err); showToast("PDF generation failed"); }
-    finally { setProgress(""); }
+
+      // Download the PDF
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = slugify(courseName || "document") + "-master-learning-doc.pdf";
+      a.click();
+      URL.revokeObjectURL(url);
+
+      showToast("PDF downloaded with formatting");
+    } catch (err) {
+      console.error("PDF generation error:", err);
+      showToast(err.message || "PDF generation failed - try downloading markdown instead");
+    } finally {
+      setProgress("");
+    }
   };
 
   const downloadAnki = () => {
