@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 import "./globals.css";
-import { callGemini, buildModulePrompt, buildGlossaryPrompt, PROVIDER_LIST, testApiKey } from "./lib/gemini";
+import { callGemini, buildModulePrompt, buildGlossaryPrompt, PROVIDER_LIST, testApiKey, extractTopicsFromText } from "./lib/gemini";
 import { slugify, assembleMarkdown } from "./lib/markdown";
 import { processFiles, getFileIcon, formatFileSize } from "./lib/files";
 import { chunkDocuments, findRelevantChunks, generateChunkEmbeddings } from "./lib/chunking";
@@ -30,6 +30,11 @@ import {
   formatHistoryDate,
   formatHistorySize,
 } from "./lib/history";
+import {
+  parseTextStructure,
+  validateExtractedStructure,
+  getExtractionStats,
+} from "./lib/topicExtractor";
 import MarkdownPreview from "./components/MarkdownPreview";
 
 function XIcon() {
@@ -75,6 +80,13 @@ export default function Home() {
   
   // Preview mode state
   const [previewMode, setPreviewMode] = useState("preview"); // "preview" or "markdown"
+  
+  // Import modal state
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importText, setImportText] = useState("");
+  const [extracting, setExtracting] = useState(false);
+  const [extractedModules, setExtractedModules] = useState(null);
+  const [extractionError, setExtractionError] = useState("");
   
   // Force re-render when files change
   useEffect(() => {
@@ -146,6 +158,93 @@ export default function Home() {
       updateHistoryStats();
       showToast("History cleared");
     }
+  };
+
+  // Topic extraction handlers
+  const handleExtractTopics = async () => {
+    if (!importText.trim()) {
+      showToast("Please paste some text first");
+      return;
+    }
+
+    setExtracting(true);
+    setExtractionError("");
+
+    try {
+      // Try AI extraction first (use Groq for speed)
+      const extractionKey = apiKeys.find((k) => k.providerId === "groq") ||
+                           apiKeys.find((k) => k.providerId === "openrouter") ||
+                           apiKeys.find((k) => k.providerId === "gemini");
+
+      let modules = null;
+
+      if (extractionKey) {
+        showToast("Analyzing text with AI...");
+        const result = await extractTopicsFromText(extractionKey, importText.trim());
+        
+        if (result.success && result.modules) {
+          modules = result.modules;
+          showToast("AI extraction successful!");
+        } else {
+          console.warn("AI extraction failed:", result.error);
+        }
+      }
+
+      // Fallback to regex parsing if AI fails or no API key
+      if (!modules) {
+        showToast("Using pattern matching...");
+        modules = parseTextStructure(importText.trim());
+      }
+
+      // Validate
+      const validation = validateExtractedStructure(modules);
+      if (!validation.valid) {
+        setExtractionError(validation.error);
+        setExtracting(false);
+        return;
+      }
+
+      // Show stats
+      const stats = getExtractionStats(modules);
+      showToast(`Found ${stats.totalModules} modules, ${stats.totalTopics} topics`);
+
+      setExtractedModules(modules);
+    } catch (err) {
+      console.error("Extraction error:", err);
+      setExtractionError(err.message || "Extraction failed");
+    } finally {
+      setExtracting(false);
+    }
+  };
+
+  const handleConfirmImport = () => {
+    if (!extractedModules || extractedModules.length === 0) return;
+
+    // Convert extracted modules to app format
+    const newModules = extractedModules.map((m) => ({
+      id: ++nextModuleId,
+      name: m.name,
+      topics: m.topics.map((t) => ({
+        id: ++nextTopicId,
+        name: t
+      }))
+    }));
+
+    setModules(newModules);
+    setShowImportModal(false);
+    setImportText("");
+    setExtractedModules(null);
+    setExtractionError("");
+    
+    const stats = getExtractionStats(extractedModules);
+    showToast(`Imported ${stats.totalModules} modules with ${stats.totalTopics} topics`);
+  };
+
+  const handleCancelImport = () => {
+    setShowImportModal(false);
+    setImportText("");
+    setExtractedModules(null);
+    setExtractionError("");
   };
 
   const updateCacheStats = () => {
@@ -1060,8 +1159,16 @@ export default function Home() {
                   </div>
                 ))}
               </div>
-              <div style={{ marginTop: 12 }}>
+              <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
                 <button type="button" className="btn-add" onClick={addModule}><PlusIcon /> Add Module</button>
+                <button type="button" className="btn-add" onClick={() => setShowImportModal(true)} style={{ background: "var(--accent)", color: "white" }}>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                    <polyline points="7 10 12 15 17 10" />
+                    <line x1="12" y1="15" x2="12" y2="3" />
+                  </svg>
+                  Import from Text
+                </button>
               </div>
             </div>
             <button type="submit" className="btn-generate" disabled={loading}>
@@ -1070,6 +1177,96 @@ export default function Home() {
           </form>
         </div>
       </section>
+
+      {/* Import Modal */}
+      {showImportModal && (
+        <div className="modal-overlay" onClick={handleCancelImport}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Import Course Structure</h3>
+              <button className="modal-close" onClick={handleCancelImport}>
+                <XIcon />
+              </button>
+            </div>
+            
+            {!extractedModules ? (
+              <>
+                <div className="modal-body">
+                  <p style={{ marginBottom: 12, color: "var(--text-muted)", fontSize: 14 }}>
+                    Paste your course syllabus, table of contents, or outline below. AI will extract modules and topics automatically.
+                  </p>
+                  <textarea
+                    value={importText}
+                    onChange={(e) => setImportText(e.target.value)}
+                    placeholder="Example:&#10;&#10;Module 1: Data Structures&#10;- Arrays and Strings&#10;- Linked Lists&#10;- Stacks and Queues&#10;&#10;Module 2: Algorithms&#10;- Sorting (Bubble, Quick, Merge)&#10;- Searching (Binary Search)"
+                    style={{
+                      width: "100%",
+                      minHeight: 300,
+                      padding: 12,
+                      border: "1px solid var(--border)",
+                      borderRadius: 6,
+                      fontSize: 13,
+                      fontFamily: "monospace",
+                      resize: "vertical",
+                    }}
+                  />
+                  {extractionError && (
+                    <div style={{ marginTop: 12, padding: 12, background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 6, color: "#dc2626", fontSize: 13 }}>
+                      {extractionError}
+                    </div>
+                  )}
+                </div>
+                <div className="modal-footer">
+                  <button className="btn-ghost" onClick={handleCancelImport}>Cancel</button>
+                  <button 
+                    className="btn-pdf" 
+                    onClick={handleExtractTopics}
+                    disabled={extracting || !importText.trim()}
+                  >
+                    {extracting ? "Extracting..." : "Extract Topics"}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="modal-body">
+                  <p style={{ marginBottom: 16, color: "var(--text-muted)", fontSize: 14 }}>
+                    Review the extracted structure below. Click "Confirm" to import or "Back" to edit the text.
+                  </p>
+                  <div style={{ maxHeight: 400, overflowY: "auto", border: "1px solid var(--border)", borderRadius: 6, padding: 16, background: "var(--bg-subtle)" }}>
+                    {extractedModules.map((module, mi) => (
+                      <div key={mi} style={{ marginBottom: 20 }}>
+                        <div style={{ fontWeight: 600, fontSize: 14, color: "var(--text)", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+                          <span style={{ background: "var(--accent)", color: "white", width: 24, height: 24, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12 }}>
+                            {mi + 1}
+                          </span>
+                          {module.name}
+                        </div>
+                        <ul style={{ margin: 0, paddingLeft: 40, listStyle: "disc" }}>
+                          {module.topics.map((topic, ti) => (
+                            <li key={ti} style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 4 }}>
+                              {topic}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ marginTop: 12, padding: 12, background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 6, fontSize: 13, color: "#16a34a" }}>
+                    ✓ Found {extractedModules.length} module{extractedModules.length !== 1 ? "s" : ""} with {extractedModules.reduce((sum, m) => sum + m.topics.length, 0)} topic{extractedModules.reduce((sum, m) => sum + m.topics.length, 0) !== 1 ? "s" : ""}
+                  </div>
+                </div>
+                <div className="modal-footer">
+                  <button className="btn-ghost" onClick={() => setExtractedModules(null)}>Back</button>
+                  <button className="btn-pdf" onClick={handleConfirmImport}>
+                    Confirm & Import
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {output && (
         <section className="output-section visible" ref={outputRef}>

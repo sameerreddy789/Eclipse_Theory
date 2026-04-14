@@ -393,3 +393,63 @@ export async function testApiKey(providerId, apiKey) {
     }
   }
 }
+
+
+// ── TOPIC EXTRACTION ──
+
+/**
+ * Extract modules and topics from text using AI
+ */
+export async function extractTopicsFromText(apiKey, text) {
+  const prompt = `You are a course structure analyzer. Extract modules and topics from the following text.
+
+The text could be:
+- A course syllabus
+- Table of contents
+- Course outline
+- List of chapters/units
+
+TEXT TO ANALYZE:
+${text}
+
+Extract the structure and return ONLY valid JSON in this exact format:
+{
+  "modules": [
+    {
+      "name": "Module Name (without numbers or prefixes)",
+      "topics": ["Topic 1", "Topic 2", "Topic 3"]
+    }
+  ]
+}
+
+RULES:
+1. Identify main sections as modules (chapters, units, modules, weeks)
+2. Extract subtopics under each module
+3. Remove numbering, bullets, and formatting (e.g., "1.1 Arrays" → "Arrays")
+4. Keep names concise and clear
+5. If no clear module structure, create one module called "Main Topics"
+6. Minimum 1 module, minimum 1 topic per module
+7. Maximum 10 modules, maximum 20 topics per module
+
+Return ONLY the JSON, no explanation.`;
+
+  const systemPrompt = "You are an expert at analyzing course structures and extracting organized information from text.";
+
+  try {
+    const result = await callGemini(
+      apiKey,
+      prompt,
+      [],
+      2,
+      { systemPrompt }
+    );
+    
+    if (result && result.modules && Array.isArray(result.modules)) {
+      return { success: true, modules: result.modules };
+    }
+    
+    return { success: false, error: "Invalid response format" };
+  } catch (err) {
+    return { success: false, error: err.message || "Extraction failed" };
+  }
+}
