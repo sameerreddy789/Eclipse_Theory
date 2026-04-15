@@ -13,37 +13,43 @@ export default function MarkdownPreview({ markdown }) {
   useEffect(() => {
     if (!containerRef.current || !markdown) return;
 
+    // Limit markdown size to prevent performance issues
+    const maxLength = 100000; // 100KB
+    const safeMarkdown = markdown.length > maxLength 
+      ? markdown.substring(0, maxLength) + "\n\n... (content truncated for performance)"
+      : markdown;
+
     // Simple markdown to HTML converter (lightweight, no external deps)
     const convertMarkdown = (md) => {
       let html = md;
 
-      // Escape HTML
+      // Escape HTML first
       html = html.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-      // Code blocks
-      html = html.replace(/```(\w+)?\n([\s\S]*?)```/g, (match, lang, code) => {
+      // Code blocks (non-greedy, limited)
+      html = html.replace(/```(\w+)?\n([\s\S]{0,5000}?)```/g, (match, lang, code) => {
         return `<pre><code class="language-${lang || "text"}">${code.trim()}</code></pre>`;
       });
 
-      // Inline code
-      html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
+      // Inline code (non-greedy, limited)
+      html = html.replace(/`([^`]{1,200})`/g, "<code>$1</code>");
 
       // Headers
-      html = html.replace(/^#### (.*$)/gim, "<h4>$1</h4>");
-      html = html.replace(/^### (.*$)/gim, "<h3>$1</h3>");
-      html = html.replace(/^## (.*$)/gim, "<h2>$1</h2>");
-      html = html.replace(/^# (.*$)/gim, "<h1>$1</h1>");
+      html = html.replace(/^#### (.{1,200})$/gim, "<h4>$1</h4>");
+      html = html.replace(/^### (.{1,200})$/gim, "<h3>$1</h3>");
+      html = html.replace(/^## (.{1,200})$/gim, "<h2>$1</h2>");
+      html = html.replace(/^# (.{1,200})$/gim, "<h1>$1</h1>");
 
-      // Bold
-      html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
-      html = html.replace(/__(.+?)__/g, "<strong>$1</strong>");
+      // Bold (non-greedy, limited)
+      html = html.replace(/\*\*(.{1,200}?)\*\*/g, "<strong>$1</strong>");
+      html = html.replace(/__(.{1,200}?)__/g, "<strong>$1</strong>");
 
-      // Italic
-      html = html.replace(/\*(.+?)\*/g, "<em>$1</em>");
-      html = html.replace(/_(.+?)_/g, "<em>$1</em>");
+      // Italic (non-greedy, limited)
+      html = html.replace(/\*(.{1,200}?)\*/g, "<em>$1</em>");
+      html = html.replace(/_(.{1,200}?)_/g, "<em>$1</em>");
 
       // Links
-      html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+      html = html.replace(/\[([^\]]{1,200})\]\(([^)]{1,500})\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
 
       // Horizontal rules
       html = html.replace(/^---$/gim, "<hr>");
@@ -58,10 +64,11 @@ export default function MarkdownPreview({ markdown }) {
       html = html.replace(/^\d+\. (.+)$/gim, "<li>$1</li>");
 
       // Wrap consecutive <li> in <ul>
-      html = html.replace(/(<li>.*<\/li>\n?)+/g, (match) => `<ul>${match}</ul>`);
+      html = html.replace(/(<li>.*?<\/li>\n?)+/g, (match) => `<ul>${match}</ul>`);
 
-      // Paragraphs
-      html = html.split("\n\n").map((para) => {
+      // Paragraphs (split and process in chunks to avoid performance issues)
+      const paragraphs = html.split("\n\n");
+      html = paragraphs.map((para) => {
         para = para.trim();
         if (!para) return "";
         if (para.startsWith("<h") || para.startsWith("<ul") || para.startsWith("<pre") || para.startsWith("<hr") || para.startsWith("<blockquote")) {
@@ -73,8 +80,13 @@ export default function MarkdownPreview({ markdown }) {
       return html;
     };
 
-    const htmlContent = convertMarkdown(markdown);
-    containerRef.current.innerHTML = htmlContent;
+    try {
+      const htmlContent = convertMarkdown(safeMarkdown);
+      containerRef.current.innerHTML = htmlContent;
+    } catch (err) {
+      console.error("Markdown conversion error:", err);
+      containerRef.current.innerHTML = "<p>Error rendering preview. Please use Markdown view.</p>";
+    }
   }, [markdown]);
 
   return (
