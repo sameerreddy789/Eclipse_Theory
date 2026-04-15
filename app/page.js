@@ -696,40 +696,18 @@ export default function Home() {
     a.download = fn; a.click(); URL.revokeObjectURL(a.href); showToast("Downloaded " + fn);
   };
   const downloadPdf = async () => {
-    setProgress("Converting markdown to PDF...");
-    try {
-      // Call server-side API to generate PDF
-      const response = await fetch("/api/pdf", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          markdown: output,
-          filename: slugify(courseName || "document") + "-master-learning-doc",
-        }),
-      });
+    // Show helpful message about PDF generation
+    const message = `PDF generation is currently disabled for deployment compatibility.
 
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || "PDF generation failed");
-      }
+Alternative options:
+1. Use browser Print-to-PDF (Ctrl+P or Cmd+P)
+2. Download markdown (.md) and convert locally
+3. Copy preview content to Word/Google Docs
 
-      // Download the PDF
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = slugify(courseName || "document") + "-master-learning-doc.pdf";
-      a.click();
-      URL.revokeObjectURL(url);
+Would you like to download the markdown instead?`;
 
-      showToast("PDF downloaded with formatting");
-    } catch (err) {
-      console.error("PDF generation error:", err);
-      showToast(err.message || "PDF generation failed - try downloading markdown instead");
-    } finally {
-      setProgress("");
+    if (confirm(message)) {
+      downloadMd();
     }
   };
 
