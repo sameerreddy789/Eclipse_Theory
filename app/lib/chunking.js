@@ -51,6 +51,7 @@ export function chunkText(text, metadata = {}) {
  * Process all uploaded files into chunks with metadata
  */
 export function chunkDocuments(processedFiles) {
+  const MAX_TOTAL_CHUNKS = 500; // Prevent browser freeze
   const allChunks = [];
 
   for (const file of processedFiles) {
@@ -58,38 +59,67 @@ export function chunkDocuments(processedFiles) {
     
     if (!text || text.length < 20) continue;
 
-    const fileChunks = chunkText(text, {
+    // Limit text size per file to prevent too many chunks
+    const maxTextLength = 50000; // ~50KB per file
+    const limitedText = text.length > maxTextLength 
+      ? text.substring(0, maxTextLength) + "\n\n[Content truncated for performance]"
+      : text;
+
+    const fileChunks = chunkText(limitedText, {
       fileName,
       fileType,
       fileSize: text.length,
     });
 
     allChunks.push(...fileChunks);
+    
+    // Stop if we have too many chunks
+    if (allChunks.length >= MAX_TOTAL_CHUNKS) {
+      console.warn(`[Chunking] Reached maximum chunk limit (${MAX_TOTAL_CHUNKS}). Stopping.`);
+      break;
+    }
   }
 
-  return allChunks;
+  console.log(`[Chunking] Created ${allChunks.length} chunks from ${processedFiles.length} files`);
+  return allChunks.slice(0, MAX_TOTAL_CHUNKS);
 }
 
 /**
  * Generate embeddings for all chunks (with progress callback)
+ * Limits to prevent browser freeze
  */
 export async function generateChunkEmbeddings(chunks, onProgress = null) {
+  const MAX_CHUNKS = 500; // Limit to prevent browser freeze
+  
+  if (chunks.length > MAX_CHUNKS) {
+    console.warn(`[Embeddings] Too many chunks (${chunks.length}). Limiting to ${MAX_CHUNKS} for performance.`);
+    chunks = chunks.slice(0, MAX_CHUNKS);
+  }
+  
   console.log(`[Embeddings] Generating embeddings for ${chunks.length} chunks...`);
   
   const chunksWithEmbeddings = [];
+  const BATCH_SIZE = 10; // Process in small batches
   
-  for (let i = 0; i < chunks.length; i++) {
-    const chunk = chunks[i];
-    const embedding = await generateEmbedding(chunk.text);
+  for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
+    const batch = chunks.slice(i, i + BATCH_SIZE);
     
-    chunksWithEmbeddings.push({
-      ...chunk,
-      embedding,
-    });
+    // Process batch in parallel
+    const batchResults = await Promise.all(
+      batch.map(async (chunk) => {
+        const embedding = await generateEmbedding(chunk.text);
+        return { ...chunk, embedding };
+      })
+    );
+    
+    chunksWithEmbeddings.push(...batchResults);
     
     if (onProgress) {
-      onProgress(i + 1, chunks.length);
+      onProgress(Math.min(i + BATCH_SIZE, chunks.length), chunks.length);
     }
+    
+    // Yield to browser to prevent freezing
+    await new Promise(resolve => setTimeout(resolve, 0));
   }
   
   console.log(`[Embeddings] Generated ${chunksWithEmbeddings.length} embeddings`);
