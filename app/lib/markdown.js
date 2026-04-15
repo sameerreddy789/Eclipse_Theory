@@ -12,19 +12,18 @@ export function renderTopicMarkdown(tNum, topicName, d) {
   s += `---\n\n`;
 
   s += `### 📖 1. Detailed Explanation\n\n`;
-  s += `#### 1.1 Introduction\n\n${d.introduction || ""}\n\n`;
-  s += `#### 1.2 Core Concept\n\n${d.coreConcept || ""}\n\n`;
+  s += `#### 1.1 Core Concept\n\n${d.coreConcept || ""}\n\n`;
 
-  s += `#### 1.3 How It Works (Step-by-Step)\n\n`;
+  s += `#### 1.2 How It Works (Step-by-Step)\n\n`;
   (d.steps || []).forEach((step, i) => { s += `${i + 1}. ${step}\n`; });
   s += `\n`;
 
-  s += `#### 1.4 Types / Variations\n\n`;
+  s += `#### 1.3 Types / Variations\n\n`;
   s += `| Type | Description | Use Case |\n|------|-------------|----------|\n`;
   (d.types || []).forEach((t) => { s += `| ${t.type} | ${t.description} | ${t.useCase} |\n`; });
   s += `\n`;
 
-  s += `#### 1.5 Properties / Characteristics\n\n`;
+  s += `#### 1.4 Properties / Characteristics\n\n`;
   (d.properties || []).forEach((p) => { s += `- **${p.name}:** ${p.explanation}\n`; });
   s += `\n---\n\n`;
 
@@ -85,7 +84,6 @@ export function assembleMarkdown({ courseName, depth, modules, moduleMetas, topi
   const totalTopics = modules.reduce((s, m) => s + m.topics.length, 0);
   let md = "";
 
-  md += `# 📘 Master Learning Document\n\n`;
   md += `> **Course:** ${courseName}\n`;
   md += `> **Generated:** ${now}\n`;
   md += `> **Detail Level:** ${depth === "brief" ? "Brief" : "Detailed"}\n`;
