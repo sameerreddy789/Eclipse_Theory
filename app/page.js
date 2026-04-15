@@ -71,7 +71,6 @@ export default function Home() {
   const [useSemanticSearch, setUseSemanticSearch] = useState(true);
   const [useOCR, setUseOCR] = useState(false);
   const [globalFiles, setGlobalFiles] = useState([]);
-  const [, forceUpdate] = useState({});
   
   // History state
   const [showHistory, setShowHistory] = useState(false);
@@ -88,10 +87,6 @@ export default function Home() {
   const [extractedModules, setExtractedModules] = useState(null);
   const [extractionError, setExtractionError] = useState("");
   
-  // Force re-render when files change
-  useEffect(() => {
-    forceUpdate({});
-  }, [globalFiles]);
   const [dragOver, setDragOver] = useState(false);
   const [modules, setModules] = useState(() => {
     const mId = ++nextModuleId;

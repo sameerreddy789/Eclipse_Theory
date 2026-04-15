@@ -1,6 +1,9 @@
 /**
  * Server-side PDF generation from markdown
  * Uses markdown-it + puppeteer for high-quality PDF output
+ * 
+ * NOTE: This requires markdown-it and puppeteer to be installed:
+ * npm install markdown-it puppeteer
  */
 
 import { NextResponse } from "next/server";
@@ -13,8 +16,20 @@ export async function POST(request) {
       return NextResponse.json({ error: "No markdown provided" }, { status: 400 });
     }
 
-    // Convert markdown to HTML with proper styling
-    const MarkdownIt = (await import("markdown-it")).default;
+    // Check if dependencies are available
+    let MarkdownIt, puppeteer;
+    try {
+      MarkdownIt = (await import("markdown-it")).default;
+      puppeteer = await import("puppeteer");
+    } catch (err) {
+      return NextResponse.json(
+        { 
+          error: "PDF generation dependencies not installed", 
+          details: "Please run: npm install markdown-it puppeteer" 
+        },
+        { status: 500 }
+      );
+    }
     const md = new MarkdownIt({
       html: true,
       linkify: true,
