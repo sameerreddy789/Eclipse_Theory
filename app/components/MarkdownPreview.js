@@ -31,6 +31,89 @@ export default function MarkdownPreview({ markdown }) {
         return `<pre><code class="language-${lang || "text"}">${code.trim()}</code></pre>`;
       });
 
+      // Tables (must be before inline code)
+      html = html.replace(/^\|(.+)\|$/gim, (match) => {
+        // Check if it's a separator row
+        if (match.match(/^\|[\s\-:|]+\|$/)) {
+          return "|||SEPARATOR|||";
+        }
+        return match;
+      });
+
+      // Convert tables to HTML
+      const lines = html.split('\n');
+      const processedLines = [];
+      let inTable = false;
+      let tableRows = [];
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        
+        if (line.startsWith('|') && line.endsWith('|')) {
+          if (!inTable) {
+            inTable = true;
+            tableRows = [];
+          }
+          
+          if (line === '|||SEPARATOR|||') {
+            // This is the header separator, mark previous row as header
+            if (tableRows.length > 0) {
+              const headerCells = tableRows[tableRows.length - 1];
+              tableRows[tableRows.length - 1] = `<thead><tr>${headerCells.map(cell => `<th>${cell}</th>`).join('')}</tr></thead>`;
+            }
+          } else {
+            // Regular table row
+            const cells = line.split('|').slice(1, -1).map(cell => cell.trim());
+            tableRows.push(cells);
+          }
+        } else {
+          // Not a table line
+          if (inTable) {
+            // End of table, convert to HTML
+            let tableHtml = '<table>';
+            
+            for (let j = 0; j < tableRows.length; j++) {
+              const row = tableRows[j];
+              if (typeof row === 'string') {
+                // Already processed as header
+                tableHtml += row;
+              } else {
+                // Regular row
+                if (j === 0 && tableRows.length > 1 && typeof tableRows[1] !== 'string') {
+                  // First row without separator = header
+                  tableHtml += `<thead><tr>${row.map(cell => `<th>${cell}</th>`).join('')}</tr></thead><tbody>`;
+                } else {
+                  if (j === 1 && typeof tableRows[0] === 'string') {
+                    tableHtml += '<tbody>';
+                  }
+                  tableHtml += `<tr>${row.map(cell => `<td>${cell}</td>`).join('')}</tr>`;
+                }
+              }
+            }
+            
+            tableHtml += '</tbody></table>';
+            processedLines.push(tableHtml);
+            inTable = false;
+            tableRows = [];
+          }
+          processedLines.push(line);
+        }
+      }
+
+      // Handle table at end of document
+      if (inTable && tableRows.length > 0) {
+        let tableHtml = '<table><tbody>';
+        for (const row of tableRows) {
+          if (typeof row !== 'string') {
+            tableHtml += `<tr>${row.map(cell => `<td>${cell}</td>`).join('')}</tr>`;
+          }
+        }
+        tableHtml += '</tbody></table>';
+        processedLines.push(tableHtml);
+      }
+
+      html = processedLines.join('\n');
+
       // Inline code (non-greedy, limited)
       html = html.replace(/`([^`]{1,200})`/g, "<code>$1</code>");
 
@@ -71,7 +154,7 @@ export default function MarkdownPreview({ markdown }) {
       html = paragraphs.map((para) => {
         para = para.trim();
         if (!para) return "";
-        if (para.startsWith("<h") || para.startsWith("<ul") || para.startsWith("<pre") || para.startsWith("<hr") || para.startsWith("<blockquote")) {
+        if (para.startsWith("<h") || para.startsWith("<ul") || para.startsWith("<pre") || para.startsWith("<hr") || para.startsWith("<blockquote") || para.startsWith("<table")) {
           return para;
         }
         return `<p>${para.replace(/\n/g, "<br>")}</p>`;
