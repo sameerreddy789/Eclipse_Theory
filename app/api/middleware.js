@@ -1,11 +1,11 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 
-const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
+const rateLimitMap = new Map();
 
 const RATE_LIMIT_WINDOW = 60000; // 1 minute
 const RATE_LIMIT_MAX = 10; // 10 requests per minute
 
-export function rateLimit(request: NextRequest): NextResponse | null {
+export function rateLimit(request) {
     const ip = request.ip || 'unknown';
     const now = Date.now();
     const limit = rateLimitMap.get(ip);
@@ -23,7 +23,7 @@ export function rateLimit(request: NextRequest): NextResponse | null {
     return null;
 }
 
-export function validateInput(data: unknown, schema: any): boolean {
+export function validateInput(data, schema) {
     try {
         schema.parse(data);
         return true;
