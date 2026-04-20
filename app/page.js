@@ -2,14 +2,14 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 import "./globals.css";
-import { callGemini, buildModulePrompt, buildGlossaryPrompt, PROVIDER_LIST, testApiKey, extractTopicsFromText } from "./lib/gemini";
-import { slugify, assembleMarkdown } from "./lib/markdown";
+import { callGemini, buildModulePrompt, buildGlossaryPrompt, PROVIDER_LIST, testApiKey, extractTopicsFromText } from "./lib/ai/gemini";
+import { slugify, assembleMarkdown } from "./lib/content/markdown";
 import { processFiles, getFileIcon, formatFileSize } from "./lib/files";
-import { chunkDocuments, findRelevantChunks, generateChunkEmbeddings } from "./lib/chunking";
-import { semanticSearch, hybridSearch } from "./lib/embeddings";
+import { chunkDocuments, findRelevantChunks, generateChunkEmbeddings } from "./lib/content/chunking";
+import { semanticSearch, hybridSearch } from "./lib/content/embeddings";
 import { extractTextFromImage, isImageFile, mightNeedOCR } from "./lib/ocr";
 import { generateAnkiCSV, generateNotionMarkdown, generateStudyChecklist, downloadFile } from "./lib/export";
-import { generateTopicTwoStage, getKeyStats } from "./lib/twoStage";
+import { generateTopicTwoStage, getKeyStats } from "./lib/ai/twoStage";
 import { 
   getCachedDocumentChunks, 
   cacheDocumentChunks, 
@@ -20,7 +20,7 @@ import {
   getCacheStats,
   clearAllCaches,
   clearOldCaches,
-} from "./lib/cache";
+} from "./lib/storage/cache";
 import {
   saveToHistory,
   getHistory,
@@ -29,12 +29,12 @@ import {
   getHistoryStats,
   formatHistoryDate,
   formatHistorySize,
-} from "./lib/history";
+} from "./lib/storage/history";
 import {
   parseTextStructure,
   validateExtractedStructure,
   getExtractionStats,
-} from "./lib/topicExtractor";
+} from "./lib/ai/topicExtractor";
 import MarkdownPreview from "./components/MarkdownPreview";
 
 function XIcon() {

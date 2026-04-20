@@ -1,14 +1,72 @@
 /**
  * Markdown Preview Component
  * Renders markdown as a styled document (PDF-like preview)
+ * Supports Mermaid diagrams via CDN
  */
 
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+
+// Load Mermaid CDN once
+let mermaidLoaded = false;
+let mermaidLoadPromise = null;
+
+function loadMermaid() {
+  if (mermaidLoaded && window.mermaid) return Promise.resolve();
+  if (mermaidLoadPromise) return mermaidLoadPromise;
+
+  mermaidLoadPromise = new Promise((resolve, reject) => {
+    // Check if already loaded
+    if (window.mermaid) {
+      mermaidLoaded = true;
+      resolve();
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.src = "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js";
+    script.async = true;
+    script.onload = () => {
+      window.mermaid.initialize({
+        startOnLoad: false,
+        theme: "default",
+        securityLevel: "loose",
+        fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+        themeVariables: {
+          primaryColor: "#f5f0e8",
+          primaryTextColor: "#1a1a1a",
+          primaryBorderColor: "#d4af37",
+          lineColor: "#8b7355",
+          secondaryColor: "#faf6ee",
+          tertiaryColor: "#fff",
+        },
+      });
+      mermaidLoaded = true;
+      resolve();
+    };
+    script.onerror = () => {
+      mermaidLoadPromise = null;
+      reject(new Error("Failed to load Mermaid"));
+    };
+    document.head.appendChild(script);
+  });
+
+  return mermaidLoadPromise;
+}
 
 export default function MarkdownPreview({ markdown }) {
   const containerRef = useRef(null);
+  const [mermaidReady, setMermaidReady] = useState(false);
+
+  // Load Mermaid on mount if markdown contains mermaid blocks
+  useEffect(() => {
+    if (markdown && markdown.includes("```mermaid")) {
+      loadMermaid()
+        .then(() => setMermaidReady(true))
+        .catch((err) => console.warn("Mermaid load failed:", err));
+    }
+  }, [markdown]);
 
   useEffect(() => {
     if (!containerRef.current || !markdown) return;
@@ -26,7 +84,13 @@ export default function MarkdownPreview({ markdown }) {
       // Escape HTML first
       html = html.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-      // Code blocks (non-greedy, limited)
+      // Mermaid code blocks — render as special divs
+      html = html.replace(/```mermaid\n([\s\S]{0,10000}?)```/g, (match, code) => {
+        const id = "mermaid-" + Math.random().toString(36).substr(2, 9);
+        return `<div class="mermaid-container"><div class="mermaid-diagram" data-mermaid-id="${id}">${code.trim()}</div></div>`;
+      });
+
+      // Code blocks (non-greedy, limited) — after mermaid to avoid conflicts
       html = html.replace(/```(\w+)?\n([\s\S]{0,5000}?)```/g, (match, lang, code) => {
         return `<pre><code class="language-${lang || "text"}">${code.trim()}</code></pre>`;
       });
@@ -117,11 +181,12 @@ export default function MarkdownPreview({ markdown }) {
       // Inline code (non-greedy, limited)
       html = html.replace(/`([^`]{1,200})`/g, "<code>$1</code>");
 
-      // Headers
-      html = html.replace(/^#### (.{1,200})$/gim, "<h4>$1</h4>");
-      html = html.replace(/^### (.{1,200})$/gim, "<h3>$1</h3>");
-      html = html.replace(/^## (.{1,200})$/gim, "<h2>$1</h2>");
-      html = html.replace(/^# (.{1,200})$/gim, "<h1>$1</h1>");
+      // Headers — add id attributes for TOC anchor navigation
+      const slugify = (text) => text.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+      html = html.replace(/^#### (.{1,200})$/gim, (_, text) => `<h4 id="${slugify(text)}">${text}</h4>`);
+      html = html.replace(/^### (.{1,200})$/gim, (_, text) => `<h3 id="${slugify(text)}">${text}</h3>`);
+      html = html.replace(/^## (.{1,200})$/gim, (_, text) => `<h2 id="${slugify(text)}">${text}</h2>`);
+      html = html.replace(/^# (.{1,200})$/gim, (_, text) => `<h1 id="${slugify(text)}">${text}</h1>`);
 
       // Bold (non-greedy, limited)
       html = html.replace(/\*\*(.{1,200}?)\*\*/g, "<strong>$1</strong>");
@@ -131,8 +196,13 @@ export default function MarkdownPreview({ markdown }) {
       html = html.replace(/\*(.{1,200}?)\*/g, "<em>$1</em>");
       html = html.replace(/_(.{1,200}?)_/g, "<em>$1</em>");
 
-      // Links
-      html = html.replace(/\[([^\]]{1,200})\]\(([^)]{1,500})\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+      // Links — internal anchor links scroll within preview, external links open new tab
+      html = html.replace(/\[([^\]]{1,200})\]\(([^)]{1,500})\)/g, (_, text, href) => {
+        if (href.startsWith('#')) {
+          return `<a href="${href}" class="toc-link" data-anchor="${href.slice(1)}">${text}</a>`;
+        }
+        return `<a href="${href}" target="_blank" rel="noopener noreferrer">${text}</a>`;
+      });
 
       // Horizontal rules
       html = html.replace(/^---$/gim, "<hr>");
@@ -154,7 +224,7 @@ export default function MarkdownPreview({ markdown }) {
       html = paragraphs.map((para) => {
         para = para.trim();
         if (!para) return "";
-        if (para.startsWith("<h") || para.startsWith("<ul") || para.startsWith("<pre") || para.startsWith("<hr") || para.startsWith("<blockquote") || para.startsWith("<table")) {
+        if (para.startsWith("<h") || para.startsWith("<ul") || para.startsWith("<pre") || para.startsWith("<hr") || para.startsWith("<blockquote") || para.startsWith("<table") || para.startsWith("<div")) {
           return para;
         }
         return `<p>${para.replace(/\n/g, "<br>")}</p>`;
@@ -166,11 +236,42 @@ export default function MarkdownPreview({ markdown }) {
     try {
       const htmlContent = convertMarkdown(safeMarkdown);
       containerRef.current.innerHTML = htmlContent;
+
+      // Render Mermaid diagrams after DOM is set
+      if (mermaidReady && window.mermaid) {
+        const mermaidDivs = containerRef.current.querySelectorAll(".mermaid-diagram");
+        if (mermaidDivs.length > 0) {
+          renderMermaidDiagrams(mermaidDivs);
+        }
+      }
+
+      // TOC anchor link click handler — smooth scroll to heading
+      const tocLinks = containerRef.current.querySelectorAll("a.toc-link");
+      tocLinks.forEach((link) => {
+        link.addEventListener("click", (e) => {
+          e.preventDefault();
+          const anchor = link.getAttribute("data-anchor");
+          if (!anchor) return;
+
+          // Find the target element by id
+          const target = containerRef.current.querySelector(`#${CSS.escape(anchor)}`);
+          if (target) {
+            // Scroll the preview container's parent (output-content) to the target
+            const scrollParent = containerRef.current.closest(".output-content") || containerRef.current.parentElement;
+            if (scrollParent) {
+              const targetTop = target.offsetTop - scrollParent.offsetTop;
+              scrollParent.scrollTo({ top: targetTop - 20, behavior: "smooth" });
+            } else {
+              target.scrollIntoView({ behavior: "smooth", block: "start" });
+            }
+          }
+        });
+      });
     } catch (err) {
       console.error("Markdown conversion error:", err);
       containerRef.current.innerHTML = "<p>Error rendering preview. Please use Markdown view.</p>";
     }
-  }, [markdown]);
+  }, [markdown, mermaidReady]);
 
   return (
     <div
@@ -189,4 +290,29 @@ export default function MarkdownPreview({ markdown }) {
       }}
     />
   );
+}
+
+/**
+ * Render all mermaid diagram divs
+ */
+async function renderMermaidDiagrams(divs) {
+  for (const div of divs) {
+    const code = div.textContent;
+    const id = div.getAttribute("data-mermaid-id") || "mermaid-" + Math.random().toString(36).substr(2, 9);
+
+    try {
+      const { svg } = await window.mermaid.render(id, code);
+      div.innerHTML = svg;
+      div.classList.add("mermaid-rendered");
+    } catch (err) {
+      console.warn("Mermaid render failed for diagram:", err);
+      // Fallback: show as styled code block
+      div.innerHTML = `<pre style="background:#faf6ee;padding:16px;border-radius:8px;border:1px solid #e8dcc8;font-size:13px;overflow-x:auto;"><code>${escapeHtml(code)}</code></pre>`;
+      div.classList.add("mermaid-fallback");
+    }
+  }
+}
+
+function escapeHtml(str) {
+  return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }

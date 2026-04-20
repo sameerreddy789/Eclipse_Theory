@@ -215,73 +215,72 @@ Return ONLY valid JSON:
  * WRITING PROMPT - Used by OpenRouter's best models to create final content
  */
 export function buildWritingPrompt(topicName, moduleName, courseName, depth, extractedInfo) {
-  const wordRange = depth === "brief" ? "200-350" : "400-700";
+  const wordRange = depth === "brief" ? "150-250" : "300-600";
   
   const infoContext = extractedInfo ? `
 EXTRACTED INFORMATION FROM STUDENT'S DOCUMENTS:
 
 Definitions:
-${extractedInfo.definitions?.map((d, i) => `${i + 1}. ${d}`).join("\n") || "None"}
+${extractedInfo.definitions?.map((d, i) => `${i + 1}. ${d}`).join("\n") || "None found"}
 
 Key Points:
-${extractedInfo.keyPoints?.map((p, i) => `${i + 1}. ${p}`).join("\n") || "None"}
+${extractedInfo.keyPoints?.map((p, i) => `${i + 1}. ${p}`).join("\n") || "None found"}
 
 Examples:
-${extractedInfo.examples?.map((e, i) => `${i + 1}. ${e}`).join("\n") || "None"}
+${extractedInfo.examples?.map((e, i) => `${i + 1}. ${e}`).join("\n") || "None found"}
 
 Code Snippets:
-${extractedInfo.codeSnippets?.map((c, i) => `${i + 1}. ${c}`).join("\n") || "None"}
-
-Related Concepts:
-${extractedInfo.relatedConcepts?.join(", ") || "None"}
+${extractedInfo.codeSnippets?.map((c, i) => `${i + 1}. ${c}`).join("\n") || "None found"}
 
 Sources: ${extractedInfo.sources?.join(", ") || "Unknown"}
 
-CRITICAL: Use the information above as your PRIMARY source. Build your explanation around these extracted facts, examples, and code snippets. Expand and clarify where needed, but stay true to the source material.
+CRITICAL: Use the information above as your PRIMARY source. Build your explanation around these extracted facts, examples, and code snippets. Match your content depth to how much the source material covers this topic. If the source has detailed coverage, be equally detailed. If brief, keep it concise.
 ` : "";
 
   return `You are an expert educator creating comprehensive study notes for "${topicName}" in module "${moduleName}", course "${courseName}".
 
 ${infoContext}
 
-Create a complete, well-structured learning document that:
-- Uses the extracted information as the foundation
-- Expands with clear explanations and context
-- Includes practical examples and code
-- Provides interview-ready insights
-- Maintains academic rigor
+CRITICAL RULES:
+1. Analyze the topic and ONLY include sections that are genuinely relevant to "${topicName}"
+2. If this topic doesn't have types/variations (e.g., it's a single concept, not a category), return an empty array [] for "types"
+3. If this topic doesn't have measurable properties/characteristics, return an empty array [] for "properties"
+4. If there's no meaningful code example for this topic, set "codeExample" to null and "codeInput", "codeProcess", "codeOutput" to null
+5. Core concept should be crisp and clear — every sentence must add value, no filler or repetition
+6. For probable questions, provide clear step-by-step solutions, not just brief answers
+7. Only include advantages/disadvantages if they genuinely apply to this topic
+8. Match your explanation depth to the source material — don't pad short topics or compress detailed ones
 
-Return ONLY valid JSON with this exact structure:
+Return ONLY valid JSON with this structure (use null or [] for sections NOT relevant to this topic):
 {
   "difficulty": "Easy/Medium/Hard",
   "estimatedMinutes": number,
   "contentSource": "${extractedInfo ? "student_documents" : "ai_knowledge"}",
   "sourcesUsed": ${extractedInfo?.sources ? JSON.stringify(extractedInfo.sources) : "[]"},
   "introduction": "80-120 words introducing the topic",
-  "coreConcept": "${wordRange} words explaining the core concept in depth",
+  "coreConcept": "${wordRange} words — crisp, clear, no filler. Explain the core concept thoroughly",
   "steps": ["step 1", "step 2", "step 3", "step 4"],
   "types": [{"type": "type name", "description": "description", "useCase": "when to use"}],
   "properties": [{"name": "property name", "explanation": "detailed explanation"}],
-  "diagram": "Mermaid flowchart syntax (e.g., 'graph TD\\nA[Start]-->B[Process]\\nB-->C[End]') or ASCII diagram if Mermaid not suitable",
+  "diagram": "Mermaid flowchart syntax (e.g., 'graph TD\\nA[Start]-->B[Process]\\nB-->C[End]') — MUST be valid Mermaid syntax",
   "realWorldAnalogy": "60-100 words with relatable analogy",
-  "codeLanguage": "python or javascript or text",
-  "codeExample": "working code example with comments",
-  "codeInput": "example input",
-  "codeProcess": "step-by-step process",
-  "codeOutput": "expected output",
+  "codeLanguage": "python or javascript or c or text",
+  "codeExample": "working code example with comments, or null if not applicable",
+  "codeInput": "example input or null",
+  "codeProcess": "step-by-step process or null",
+  "codeOutput": "expected output or null",
   "keyPoints": ["point 1", "point 2", "point 3", "point 4", "point 5"],
-  "interviewQuestions": [{"question": "question?", "answer": "detailed answer"}],
+  "probableQuestions": [{"question": "likely exam/interview question?", "solution": "detailed step-by-step solution"}],
   "commonMistakes": [{"mistake": "common mistake", "correction": "how to fix it"}],
   "edgeCases": ["edge case 1", "edge case 2"],
-  "advantages": ["advantage 1", "advantage 2", "advantage 3"],
+  "advantages": ["advantage 1", "advantage 2"],
   "disadvantages": ["disadvantage 1", "disadvantage 2"],
-  "relatedTopics": [{"topic": "related topic", "relationship": "how it relates"}],
   "summary": "one sentence summary"
 }`;
 }
 
 export function buildTopicPrompt(topicName, moduleName, courseName, depth, referenceText = "", sourcesUsed = []) {
-  const wordRange = depth === "brief" ? "200-350" : "400-700";
+  const wordRange = depth === "brief" ? "150-250" : "300-600";
   
   let ctx = "";
   if (referenceText) {
@@ -293,33 +292,39 @@ export function buildTopicPrompt(topicName, moduleName, courseName, depth, refer
 
   return `You are an expert educator creating comprehensive study notes for "${topicName}" in module "${moduleName}", course "${courseName}".
 
-${ctx ? ctx + "\nIMPORTANT: Base your content primarily on the reference material above. Extract key concepts, examples, and explanations directly from the provided sources. If the reference material doesn't cover certain aspects, supplement with your knowledge but prioritize the uploaded content." : "Create comprehensive educational content based on your knowledge of this topic."}
+${ctx ? ctx + "\nIMPORTANT: Base your content primarily on the reference material above. Match your content depth to how much the source material covers this topic. If the source has 2+ pages on this topic, provide detailed explanation. If brief, keep it concise. Supplement with your knowledge only where needed." : "Create comprehensive educational content based on your knowledge of this topic."}
 
-Return ONLY valid JSON with this exact structure:
+CRITICAL RULES:
+1. Only include sections genuinely relevant to "${topicName}" — return [] for irrelevant sections
+2. If no meaningful code example exists, set codeExample to null
+3. Core concept must be crisp and clear — no filler or repetition
+4. Probable questions should have detailed step-by-step solutions
+5. Only include advantages/disadvantages/properties if they genuinely apply
+
+Return ONLY valid JSON (use null or [] for sections NOT relevant to this topic):
 {
   "difficulty": "Easy/Medium/Hard",
   "estimatedMinutes": number,
   "contentSource": "${ctx ? "reference_material" : "ai_knowledge"}",
   "sourcesUsed": [${ctx ? '"list", "of", "source", "files"' : ''}],
   "introduction": "80-120 words introducing the topic",
-  "coreConcept": "${wordRange} words explaining the core concept in depth",
+  "coreConcept": "${wordRange} words — crisp, clear, no filler",
   "steps": ["step 1", "step 2", "step 3", "step 4"],
   "types": [{"type": "type name", "description": "description", "useCase": "when to use"}],
   "properties": [{"name": "property name", "explanation": "detailed explanation"}],
-  "diagram": "Mermaid flowchart syntax (e.g., 'graph TD\\nA[Start]-->B[Process]\\nB-->C[End]') or ASCII diagram if Mermaid not suitable",
+  "diagram": "Valid Mermaid syntax (graph TD, flowchart, etc.)",
   "realWorldAnalogy": "60-100 words with relatable analogy",
-  "codeLanguage": "python or javascript or text",
-  "codeExample": "working code example with comments",
-  "codeInput": "example input",
-  "codeProcess": "step-by-step process",
-  "codeOutput": "expected output",
+  "codeLanguage": "python or javascript or c or text",
+  "codeExample": "working code example or null",
+  "codeInput": "example input or null",
+  "codeProcess": "step-by-step process or null",
+  "codeOutput": "expected output or null",
   "keyPoints": ["point 1", "point 2", "point 3", "point 4", "point 5"],
-  "interviewQuestions": [{"question": "question?", "answer": "detailed answer"}],
+  "probableQuestions": [{"question": "likely exam question?", "solution": "detailed step-by-step solution"}],
   "commonMistakes": [{"mistake": "common mistake", "correction": "how to fix it"}],
   "edgeCases": ["edge case 1", "edge case 2"],
-  "advantages": ["advantage 1", "advantage 2", "advantage 3"],
+  "advantages": ["advantage 1", "advantage 2"],
   "disadvantages": ["disadvantage 1", "disadvantage 2"],
-  "relatedTopics": [{"topic": "related topic", "relationship": "how it relates"}],
   "summary": "one sentence summary"
 }`;
 }
@@ -329,7 +334,7 @@ export function buildModulePrompt(moduleName, topics, courseName, referenceText 
   return `Module metadata for "${moduleName}" in "${courseName}".
 Topics: ${topics.join(", ")}${ctx}
 Return ONLY valid JSON:
-{"overview":"2-3 sentences","objectives":["o1","o2","o3"],"estimatedHours":number,"difficulty":"Easy/Medium/Hard","prerequisites":"or None"}`;
+{"objectives":["objective 1","objective 2","objective 3"],"estimatedHours":number,"difficulty":"Easy/Medium/Hard"}`;
 }
 
 export function buildGlossaryPrompt(courseName, allTopics) {

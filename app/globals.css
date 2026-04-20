@@ -801,6 +801,32 @@ footer {
   page-break-inside: avoid;
 }
 
+/* MERMAID DIAGRAMS */
+.markdown-preview .mermaid-container {
+  margin: 20px 0;
+  page-break-inside: avoid;
+}
+
+.markdown-preview .mermaid-diagram {
+  background: #fafbfd;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 24px 16px;
+  text-align: center;
+  overflow-x: auto;
+}
+
+.markdown-preview .mermaid-diagram.mermaid-rendered svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.markdown-preview .mermaid-diagram.mermaid-fallback pre {
+  margin: 0;
+  border: none;
+  background: transparent;
+}
+
 /* Preview mode toggle */
 .preview-toggle {
   display: flex;
