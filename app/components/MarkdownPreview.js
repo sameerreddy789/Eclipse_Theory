@@ -92,7 +92,24 @@ export default function MarkdownPreview({ markdown }) {
 
       // Code blocks (non-greedy, limited) — after mermaid to avoid conflicts
       html = html.replace(/```(\w+)?\n([\s\S]{0,5000}?)```/g, (match, lang, code) => {
-        return `<pre><code class="language-${lang || "text"}">${code.trim()}</code></pre>`;
+        // Fallback: If AI forgot the 'mermaid' tag but the code clearly is a mermaid diagram
+        const trimmedCode = code.trim();
+        const isMermaidSyntax = trimmedCode.startsWith('graph ') || 
+                                trimmedCode.startsWith('flowchart ') || 
+                                trimmedCode.startsWith('sequenceDiagram') || 
+                                trimmedCode.startsWith('classDiagram') || 
+                                trimmedCode.startsWith('stateDiagram') || 
+                                trimmedCode.startsWith('erDiagram') ||
+                                trimmedCode.startsWith('pie') ||
+                                trimmedCode.startsWith('gantt') ||
+                                trimmedCode.startsWith('mindmap');
+                                
+        if (!lang && isMermaidSyntax) {
+          const id = "mermaid-fallback-" + Math.random().toString(36).substr(2, 9);
+          return `<div class="mermaid-container"><div class="mermaid-diagram" data-mermaid-id="${id}">${trimmedCode}</div></div>`;
+        }
+        
+        return `<pre><code class="language-${lang || "text"}">${trimmedCode}</code></pre>`;
       });
 
       // Tables (must be before inline code)
