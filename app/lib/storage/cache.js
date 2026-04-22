@@ -188,17 +188,20 @@ export async function getCachedAnalysisResult(topicName, moduleName, documentHas
 /**
  * Cache entire generated document
  */
-export async function cacheGeneratedDocument(courseName, modules, documentHashes, markdown, depth = "detailed") {
+export async function cacheGeneratedDocument(courseName, modules, documentHashes, markdown, depth = "detailed", settings = {}) {
   try {
     const sortedHashes = [...documentHashes].sort();
     const moduleStr = modules.map((m) => `${m.name}:${m.topics.join(",")}`).join("|");
-    const identifier = await simpleHash(`${courseName}_${depth}_${moduleStr}_${sortedHashes.join("_")}`);
+    // Include settings in cache key to prevent incorrect cache hits
+    const settingsStr = `semantic:${settings.useSemanticSearch || false}_ocr:${settings.useOCR || false}_speed:${settings.preferSpeed || false}`;
+    const identifier = await simpleHash(`${courseName}_${depth}_${settingsStr}_${moduleStr}_${sortedHashes.join("_")}`);
     const key = getCacheKey("document", identifier);
     const data = {
       courseName,
       modules,
       documentHashes: sortedHashes,
       depth,
+      settings,
       markdown,
       timestamp: Date.now(),
     };
@@ -212,11 +215,13 @@ export async function cacheGeneratedDocument(courseName, modules, documentHashes
 /**
  * Get cached generated document
  */
-export async function getCachedGeneratedDocument(courseName, modules, documentHashes, depth = "detailed") {
+export async function getCachedGeneratedDocument(courseName, modules, documentHashes, depth = "detailed", settings = {}) {
   try {
     const sortedHashes = [...documentHashes].sort();
     const moduleStr = modules.map((m) => `${m.name}:${m.topics.join(",")}`).join("|");
-    const identifier = await simpleHash(`${courseName}_${depth}_${moduleStr}_${sortedHashes.join("_")}`);
+    // Include settings in cache key to prevent incorrect cache hits
+    const settingsStr = `semantic:${settings.useSemanticSearch || false}_ocr:${settings.useOCR || false}_speed:${settings.preferSpeed || false}`;
+    const identifier = await simpleHash(`${courseName}_${depth}_${settingsStr}_${moduleStr}_${sortedHashes.join("_")}`);
     const key = getCacheKey("document", identifier);
     const cached = localStorage.getItem(key);
     if (!cached) return null;
@@ -248,6 +253,18 @@ export async function getCachedGeneratedDocument(courseName, modules, documentHa
     if (data.depth && data.depth !== depth) {
       localStorage.removeItem(key);
       return null;
+    }
+
+    // Validate cache — settings must match (if settings were cached)
+    if (data.settings) {
+      const cachedSettings = data.settings;
+      if (cachedSettings.useSemanticSearch !== settings.useSemanticSearch ||
+          cachedSettings.useOCR !== settings.useOCR ||
+          cachedSettings.preferSpeed !== settings.preferSpeed) {
+        console.log(`[Cache] Settings mismatch, invalidating cache`);
+        localStorage.removeItem(key);
+        return null;
+      }
     }
 
     console.log(`[Cache] Hit: Full document for "${courseName}"`);
