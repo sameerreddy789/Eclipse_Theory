@@ -454,7 +454,7 @@ export default function Home() {
       // Check if we can use cached full document
       if (documentHashes.length > 0) {
         setProgress("Checking for cached document...");
-        const cachedDoc = await getCachedGeneratedDocument(courseName.trim(), validModules, documentHashes);
+        const cachedDoc = await getCachedGeneratedDocument(courseName.trim(), validModules, documentHashes, depth);
         if (cachedDoc) {
           setOutput(cachedDoc);
           showToast("Loaded from cache (instant!)");
@@ -672,7 +672,7 @@ export default function Home() {
       
       // Cache the final document
       if (documentHashes.length > 0) {
-        await cacheGeneratedDocument(courseName.trim(), validModules, documentHashes, md);
+        await cacheGeneratedDocument(courseName.trim(), validModules, documentHashes, md, depth);
         updateCacheStats();
       }
       

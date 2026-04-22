@@ -3,7 +3,7 @@
  * Stores processed documents, analysis results, and generated content
  */
 
-const CACHE_VERSION = "v1";
+const CACHE_VERSION = "v2";
 const MAX_CACHE_SIZE = 50 * 1024 * 1024; // 50MB limit for localStorage
 
 /**
@@ -14,7 +14,7 @@ async function simpleHash(str) {
   const data = encoder.encode(str);
   const hashBuffer = await crypto.subtle.digest("SHA-256", data);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 16);
+  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 32);
 }
 
 /**
@@ -131,12 +131,13 @@ export async function getCachedDocumentChunks(file) {
  */
 export async function cacheAnalysisResult(topicName, moduleName, documentHashes, extractedInfo) {
   try {
-    const identifier = await simpleHash(`${topicName}_${moduleName}_${documentHashes.sort().join("_")}`);
+    const sortedHashes = [...documentHashes].sort();
+    const identifier = await simpleHash(`${topicName}_${moduleName}_${sortedHashes.join("_")}`);
     const key = getCacheKey("analysis", identifier);
     const data = {
       topicName,
       moduleName,
-      documentHashes,
+      documentHashes: sortedHashes,
       extractedInfo,
       timestamp: Date.now(),
     };
@@ -152,7 +153,8 @@ export async function cacheAnalysisResult(topicName, moduleName, documentHashes,
  */
 export async function getCachedAnalysisResult(topicName, moduleName, documentHashes) {
   try {
-    const identifier = await simpleHash(`${topicName}_${moduleName}_${documentHashes.sort().join("_")}`);
+    const sortedHashes = [...documentHashes].sort();
+    const identifier = await simpleHash(`${topicName}_${moduleName}_${sortedHashes.join("_")}`);
     const key = getCacheKey("analysis", identifier);
     const cached = localStorage.getItem(key);
     if (!cached) return null;
@@ -160,9 +162,15 @@ export async function getCachedAnalysisResult(topicName, moduleName, documentHas
     const data = JSON.parse(cached);
     
     // Validate cache (check if document hashes match)
-    const cachedHashes = data.documentHashes.sort().join("_");
-    const currentHashes = documentHashes.sort().join("_");
+    const cachedHashes = [...data.documentHashes].sort().join("_");
+    const currentHashes = sortedHashes.join("_");
     if (cachedHashes !== currentHashes) {
+      localStorage.removeItem(key);
+      return null;
+    }
+
+    // Validate topic and module names match exactly
+    if (data.topicName !== topicName || data.moduleName !== moduleName) {
       localStorage.removeItem(key);
       return null;
     }
@@ -180,15 +188,17 @@ export async function getCachedAnalysisResult(topicName, moduleName, documentHas
 /**
  * Cache entire generated document
  */
-export async function cacheGeneratedDocument(courseName, modules, documentHashes, markdown) {
+export async function cacheGeneratedDocument(courseName, modules, documentHashes, markdown, depth = "detailed") {
   try {
+    const sortedHashes = [...documentHashes].sort();
     const moduleStr = modules.map((m) => `${m.name}:${m.topics.join(",")}`).join("|");
-    const identifier = await simpleHash(`${courseName}_${moduleStr}_${documentHashes.sort().join("_")}`);
+    const identifier = await simpleHash(`${courseName}_${depth}_${moduleStr}_${sortedHashes.join("_")}`);
     const key = getCacheKey("document", identifier);
     const data = {
       courseName,
       modules,
-      documentHashes,
+      documentHashes: sortedHashes,
+      depth,
       markdown,
       timestamp: Date.now(),
     };
@@ -202,20 +212,40 @@ export async function cacheGeneratedDocument(courseName, modules, documentHashes
 /**
  * Get cached generated document
  */
-export async function getCachedGeneratedDocument(courseName, modules, documentHashes) {
+export async function getCachedGeneratedDocument(courseName, modules, documentHashes, depth = "detailed") {
   try {
+    const sortedHashes = [...documentHashes].sort();
     const moduleStr = modules.map((m) => `${m.name}:${m.topics.join(",")}`).join("|");
-    const identifier = await simpleHash(`${courseName}_${moduleStr}_${documentHashes.sort().join("_")}`);
+    const identifier = await simpleHash(`${courseName}_${depth}_${moduleStr}_${sortedHashes.join("_")}`);
     const key = getCacheKey("document", identifier);
     const cached = localStorage.getItem(key);
     if (!cached) return null;
 
     const data = JSON.parse(cached);
     
-    // Validate cache
-    const cachedHashes = data.documentHashes.sort().join("_");
-    const currentHashes = documentHashes.sort().join("_");
+    // Validate cache — document hashes must match
+    const cachedHashes = [...data.documentHashes].sort().join("_");
+    const currentHashes = sortedHashes.join("_");
     if (cachedHashes !== currentHashes) {
+      localStorage.removeItem(key);
+      return null;
+    }
+
+    // Validate cache — course name must match exactly
+    if (data.courseName !== courseName) {
+      localStorage.removeItem(key);
+      return null;
+    }
+
+    // Validate cache — modules structure must match exactly
+    const cachedModuleStr = data.modules.map((m) => `${m.name}:${m.topics.join(",")}`).join("|");
+    if (cachedModuleStr !== moduleStr) {
+      localStorage.removeItem(key);
+      return null;
+    }
+
+    // Validate cache — depth must match
+    if (data.depth && data.depth !== depth) {
       localStorage.removeItem(key);
       return null;
     }
