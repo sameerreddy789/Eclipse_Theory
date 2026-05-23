@@ -47,7 +47,7 @@ export default function ProcessPage() {
             { 
               icon: Rocket, 
               title: "4. Structured Output", 
-              desc: "The final intelligence report is formatted into Markdown, Notion blocks, and Anki flashcards. Ready for immediate deployment to your learning environment." 
+              desc: "The final intelligence report is formatted into high-fidelity PDF and Markdown. Ready for immediate deployment to your learning environment." 
             }
           ].map((item, i) => (
             <div key={i} style={{ display: 'flex', gap: '30px', alignItems: 'flex-start' }}>

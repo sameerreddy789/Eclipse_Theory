@@ -340,14 +340,22 @@ export default function DashboardPage() {
                 <div className="output-bar-actions" style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                   <button className="btn-ghost" onClick={() => setPreviewMode(previewMode === 'preview' ? 'markdown' : 'preview')}>{previewMode === 'preview' ? 'Raw Code' : 'Preview'}</button>
                   <button className="btn-ghost" onClick={downloadMd}>Download MD</button>
-                  <button className="btn-ghost" onClick={downloadNotion}>Notion</button>
-                  <button className="btn-ghost" onClick={downloadChecklist}>Checklist</button>
-                  <button className="btn-ghost" onClick={downloadAnki}>Anki</button>
                   <button className="btn-pdf" onClick={handlePrint} style={{ background: 'var(--accent)', color: '#000' }}>Print / PDF</button>
                 </div>
               </div>
               <div className="output-content" style={{ background: 'var(--bg-subtle)' }}>
                 {previewMode === 'preview' ? <MarkdownPreview markdown={output} /> : <pre style={{ color: 'var(--text)' }}>{output}</pre>}
+              </div>
+            </div>
+          </section>
+        )}
+      </div>
+
+      <div className={`toast ${toast ? "show" : ""}`} style={{ background: 'var(--accent)', color: '#000', fontWeight: '800' }}>{toast}</div>
+    </div>
+  );
+}
+color: 'var(--text)' }}>{output}</pre>}
               </div>
             </div>
           </section>

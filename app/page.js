@@ -59,7 +59,7 @@ export default function LandingPage() {
           {[
             { step: "01", title: "Feed", desc: "Upload PDFs, hand-written notes, or slides into our secure OCR-ready engine." },
             { step: "02", title: "Analyze", desc: "Multi-stage agents perform semantic search and knowledge synthesis." },
-            { step: "03", title: "Master", desc: "Get master guides and instantly export to Anki, Notion, or high-fidelity PDF." }
+            { step: "03", title: "Master", desc: "Get master guides and instantly export to high-fidelity PDF or Markdown." }
           ].map((item, i) => (
             <div key={i} style={{ padding: '30px', background: 'var(--bg-subtle)', borderRadius: '20px', border: '1px solid var(--border)', position: 'relative' }}>
               <div style={{ fontSize: '40px', fontWeight: '900', color: 'rgba(212, 175, 55, 0.05)', position: 'absolute', top: '15px', right: '20px' }}>{item.step}</div>
