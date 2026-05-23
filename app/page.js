@@ -121,7 +121,7 @@ export default function LandingPage() {
             <div style={{ fontSize: '28px', fontWeight: '900', marginBottom: '16px', color: 'var(--text)' }}>₹0</div>
             <ul style={{ listStyle: 'none', padding: 0, textAlign: 'left', marginBottom: '20px', fontSize: '12px', flex: 1 }}>
               <li style={{ marginBottom: '8px', display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-muted)' }}><CheckCircle2 size={14} color="var(--accent)" /> 3 Initial Credits</li>
-              <li style={{ marginBottom: '8px', display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-muted)' }}><CheckCircle2 size={14} color="var(--accent)" /> 3 parallel uploads</li>
+              <li style={{ marginBottom: '8px', display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-muted)' }}><CheckCircle2 size={14} color="var(--accent)" /> File limit is 3</li>
             </ul>
             <Link href="/signup" className="btn-test-key" style={{ display: 'block', padding: '10px', borderRadius: '8px', fontWeight: '700', fontSize: '12px', borderColor: 'var(--accent)', color: 'var(--accent)' }}>START FREE</Link>
           </div>
