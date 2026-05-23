@@ -39,8 +39,6 @@ export const AuthProvider = ({ children }) => {
           if (docSnap.exists()) {
             setUserData(docSnap.data());
           } else {
-            // New user initialization is usually handled on signup
-            // but we keep a fallback here
             console.log("No user data found in Firestore");
           }
           setLoading(false);
@@ -59,15 +57,49 @@ export const AuthProvider = ({ children }) => {
 
   const signup = async (email, password, referralCode = null) => {
     if (!auth || !db) throw new Error("Firebase not initialized. Check your API keys.");
+    
     const res = await createUserWithEmailAndPassword(auth, email, password);
-    // ... rest
+    const uid = res.user.uid;
+    
+    // Create User Document
+    const newUser = {
+      uid,
+      email,
+      plan: 'free',
+      credits_remaining: 3,
+      generations_total: 0,
+      referral_code: nanoid(6).toUpperCase(),
+      referred_by: referralCode,
+      created_at: new Date(),
+      last_active: new Date(),
+      abuse_score: 0
+    };
+
+    await setDoc(doc(db, "users", uid), newUser);
+
+    // Handle referral reward securely via API
+    if (referralCode) {
+      try {
+        await fetch("/api/referral/redeem", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ referralCode, newUserId: uid })
+        });
+      } catch (err) {
+        console.error("Referral award failed:", err);
+      }
+    }
+
+    return res;
   };
 
   const login = (email, password) => {
     if (!auth) throw new Error("Firebase not initialized");
     return signInWithEmailAndPassword(auth, email, password);
   };
+
   const logout = () => auth && signOut(auth);
+
   const resetPassword = (email) => {
     if (!auth) throw new Error("Firebase not initialized");
     return sendPasswordResetEmail(auth, email);
@@ -75,9 +107,46 @@ export const AuthProvider = ({ children }) => {
 
   const loginWithGoogle = async (referralCode = null) => {
     if (!auth || !db) throw new Error("Firebase not initialized");
+    
     const provider = new GoogleAuthProvider();
     const res = await signInWithPopup(auth, provider);
-    // ... rest
+    const user = res.user;
+    
+    // Check if user doc exists
+    const userDocRef = doc(db, "users", user.uid);
+    const userDoc = await getDoc(userDocRef);
+    
+    if (!userDoc.exists()) {
+      // Initialize new user
+      const newUser = {
+        uid: user.uid,
+        email: user.email,
+        display_name: user.displayName,
+        plan: 'free',
+        credits_remaining: 3,
+        generations_total: 0,
+        referral_code: nanoid(6).toUpperCase(),
+        referred_by: referralCode,
+        created_at: new Date(),
+        last_active: new Date(),
+        abuse_score: 0
+      };
+      await setDoc(userDocRef, newUser);
+
+      // Handle referral reward securely via API
+      if (referralCode) {
+        try {
+          await fetch("/api/referral/redeem", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ referralCode, newUserId: user.uid })
+          });
+        } catch (err) {
+          console.error("Referral award failed:", err);
+        }
+      }
+    }
+    return res;
   };
 
   return (
