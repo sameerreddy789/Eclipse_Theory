@@ -74,35 +74,41 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Compact Pricing Section */}
-      <section id="pricing" style={{ padding: '80px 24px', background: 'rgba(212, 175, 55, 0.01)', borderTop: '1px solid var(--border)' }}>
-        <div style={{ textAlign: 'center', marginBottom: '40px' }}>
-          <h2 style={{ fontSize: '32px', fontWeight: '900', marginBottom: '10px', color: 'var(--accent)' }}>Choose Your Tier</h2>
-          <p style={{ color: 'var(--text-muted)', fontSize: '14px' }}>One-time payment for lifetime value.</p>
+      {/* Compact Pricing Section - Forced Side-by-Side */}
+      <section id="pricing" style={{ padding: '60px 24px', background: 'rgba(212, 175, 55, 0.01)', borderTop: '1px solid var(--border)' }}>
+        <div style={{ textAlign: 'center', marginBottom: '32px' }}>
+          <h2 style={{ fontSize: '28px', fontWeight: '900', marginBottom: '8px', color: 'var(--accent)' }}>CHOOSE YOUR TIER</h2>
+          <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>Simple, transparent pricing for every student.</p>
         </div>
         
-        <div style={{ display: 'flex', gap: '20px', maxWidth: '700px', margin: '0 auto', flexWrap: 'wrap', justifyContent: 'center' }}>
-          {/* Free Plan */}
-          <div style={{ flex: '1', minWidth: '300px', background: 'var(--bg-subtle)', borderColor: 'var(--border)', padding: '30px', borderRadius: '20px', border: '1px solid var(--border)', textAlign: 'center' }}>
-            <h3 style={{ fontSize: '14px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '8px', color: 'var(--text-muted)' }}>Standard</h3>
-            <div style={{ fontSize: '32px', fontWeight: '900', marginBottom: '20px' }}>₹0</div>
-            <ul style={{ listStyle: 'none', padding: 0, textAlign: 'left', marginBottom: '24px', fontSize: '13px' }}>
+        <div style={{ 
+          display: 'grid', 
+          gridTemplateColumns: 'repeat(2, 1fr)', 
+          gap: '20px', 
+          maxWidth: '680px', 
+          margin: '0 auto' 
+        }}>
+          {/* Standard Plan */}
+          <div style={{ background: 'var(--bg-subtle)', border: '1px solid var(--border)', padding: '24px', borderRadius: '16px', textAlign: 'center', display: 'flex', flexDirection: 'column' }}>
+            <h3 style={{ fontSize: '13px', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '8px', color: 'var(--text-dim)' }}>Standard</h3>
+            <div style={{ fontSize: '28px', fontWeight: '900', marginBottom: '16px', color: 'var(--text)' }}>₹0</div>
+            <ul style={{ listStyle: 'none', padding: 0, textAlign: 'left', marginBottom: '20px', fontSize: '12px', flex: 1 }}>
               <li style={{ marginBottom: '8px', display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-muted)' }}><CheckCircle2 size={14} color="var(--accent)" /> 3 Initial Credits</li>
-              <li style={{ marginBottom: '8px', display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-muted)' }}><CheckCircle2 size={14} color="var(--accent)" /> 3 Parallel Uploads</li>
+              <li style={{ marginBottom: '8px', display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-muted)' }}><CheckCircle2 size={14} color="var(--accent)" /> 3 parallel uploads</li>
             </ul>
-            <Link href="/signup" className="btn-test-key" style={{ display: 'block', padding: '10px', borderRadius: '10px', fontWeight: '700', borderColor: 'var(--accent)', color: 'var(--accent)', fontSize: '13px' }}>Start Free</Link>
+            <Link href="/signup" className="btn-test-key" style={{ display: 'block', padding: '10px', borderRadius: '8px', fontWeight: '700', fontSize: '12px', borderColor: 'var(--accent)', color: 'var(--accent)' }}>START FREE</Link>
           </div>
 
           {/* Premium Plan */}
-          <div style={{ flex: '1', minWidth: '300px', background: 'var(--bg-elevated)', borderColor: 'var(--accent)', borderWidth: '2px', padding: '30px', borderRadius: '20px', border: '2px solid var(--accent)', position: 'relative', textAlign: 'center', boxShadow: '0 10px 30px -10px rgba(212, 175, 55, 0.2)' }}>
-            <div style={{ position: 'absolute', top: '-10px', left: '50%', transform: 'translateX(-50%)', background: 'var(--accent)', color: '#000', padding: '2px 12px', borderRadius: '20px', fontSize: '9px', fontWeight: '900' }}>BEST VALUE</div>
-            <h3 style={{ fontSize: '14px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '8px', color: 'var(--accent)' }}>Premium</h3>
-            <div style={{ fontSize: '32px', fontWeight: '900', marginBottom: '20px', color: 'var(--accent)' }}>₹49 <span style={{ fontSize: '14px', color: 'var(--text-dim)' }}>/mo</span></div>
-            <ul style={{ listStyle: 'none', padding: 0, textAlign: 'left', marginBottom: '24px', fontSize: '13px' }}>
+          <div style={{ background: 'var(--bg-elevated)', border: '2px solid var(--accent)', padding: '24px', borderRadius: '16px', position: 'relative', textAlign: 'center', display: 'flex', flexDirection: 'column', boxShadow: '0 10px 20px -10px rgba(212, 175, 55, 0.2)' }}>
+            <div style={{ position: 'absolute', top: '-10px', left: '50%', transform: 'translateX(-50%)', background: 'var(--accent)', color: '#000', padding: '2px 10px', borderRadius: '20px', fontSize: '8px', fontWeight: '900', letterSpacing: '0.5px' }}>BEST VALUE</div>
+            <h3 style={{ fontSize: '13px', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '8px', color: 'var(--accent)' }}>Premium</h3>
+            <div style={{ fontSize: '28px', fontWeight: '900', marginBottom: '16px', color: 'var(--accent)' }}>₹49 <span style={{ fontSize: '13px', color: 'var(--text-dim)' }}>/mo</span></div>
+            <ul style={{ listStyle: 'none', padding: 0, textAlign: 'left', marginBottom: '20px', fontSize: '12px', flex: 1 }}>
               <li style={{ marginBottom: '8px', display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text)', fontWeight: '600' }}><CheckCircle2 size={14} color="var(--accent)" /> 10 Gens / Day</li>
-              <li style={{ marginBottom: '8px', display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text)', fontWeight: '600' }}><CheckCircle2 size={14} color="var(--accent)" /> Unlimited Material</li>
+              <li style={{ marginBottom: '8px', display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text)', fontWeight: '600' }}><CheckCircle2 size={14} color="var(--accent)" /> Unlimited uploads</li>
             </ul>
-            <Link href="/signup" className="btn-save-key" style={{ display: 'block', padding: '10px', borderRadius: '10px', fontSize: '13px', fontWeight: '900' }}>Go Pro</Link>
+            <Link href="/signup" className="btn-save-key" style={{ display: 'block', padding: '10px', borderRadius: '8px', fontSize: '12px', fontWeight: '900' }}>GO PRO</Link>
           </div>
         </div>
       </section>
