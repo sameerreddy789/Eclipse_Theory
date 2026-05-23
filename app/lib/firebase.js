@@ -11,10 +11,20 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID
 };
 
-// Initialize Firebase only if the API key is present to avoid build-time errors
+// Initialize Firebase only if the API key is present
 let app;
-if (typeof window !== "undefined" || process.env.NEXT_PUBLIC_FIREBASE_API_KEY) {
-  app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
+
+console.log("[Firebase] Initializing with Project ID:", process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID);
+
+if (process.env.NEXT_PUBLIC_FIREBASE_API_KEY) {
+  try {
+    app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
+    console.log("[Firebase] Initialization successful");
+  } catch (error) {
+    console.error("[Firebase] Initialization failed:", error);
+  }
+} else {
+  console.warn("[Firebase] Missing NEXT_PUBLIC_FIREBASE_API_KEY. Initialization skipped.");
 }
 
 export const auth = app ? getAuth(app) : null;
