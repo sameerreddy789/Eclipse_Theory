@@ -3,6 +3,8 @@
  * Supports: Gemini (native), Groq, OpenRouter (OpenAI-compatible).
  */
 
+import { auth } from "../firebase";
+
 const PROVIDERS = {
   gemini: {
     name: "Google Gemini",
@@ -143,23 +145,49 @@ async function callProvider(providerId, apiKey, prompt, images = [], options = {
  */
 export async function callGemini(keyEntry, prompt, images = [], retries = 1, options = {}) {
   // SaaS Upgrade: Use System keys if keyEntry is null or 'system'
-  let providerId, key;
-  
   if (!keyEntry || keyEntry === "system") {
-    providerId = options.preferredProvider || "gemini";
-    key = providerId === "gemini" ? process.env.GEMINI_API_KEY :
-          providerId === "groq" ? process.env.GROQ_API_KEY :
-          process.env.OPENROUTER_API_KEY;
-  } else {
-    ({ providerId, key } = typeof keyEntry === "string"
-      ? { providerId: "gemini", key: keyEntry }
-      : keyEntry);
+    const providerId = options.preferredProvider || "gemini";
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        const idToken = await auth.currentUser?.getIdToken();
+        if (!idToken) throw new Error("User not authenticated");
+        
+        const res = await fetch("/api/ai/proxy", {
+          method: "POST",
+          headers: { 
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${idToken}`
+          },
+          body: JSON.stringify({ providerId, prompt, images, options })
+        });
+        
+        if (!res.ok) {
+          throw new Error(`Proxy error: ${res.status} ${await res.text()}`);
+        }
+        
+        const data = await res.json();
+        const rawText = data.result;
+        if (!rawText) return null;
+        
+        const cleaned = rawText.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
+        return JSON.parse(cleaned);
+      } catch (err) {
+        console.error(`[Proxy/${providerId}] Attempt ${attempt + 1}:`, err.message);
+        if (attempt === retries) return null;
+        await sleep(2000 * (attempt + 1));
+      }
+    }
+    return null;
   }
+
+  // Normal flow with user-provided keys
+  let { providerId, key } = typeof keyEntry === "string"
+    ? { providerId: "gemini", key: keyEntry }
+    : keyEntry;
   
   if (!key) throw new Error("No API key available for " + providerId);
 
   for (let attempt = 0; attempt <= retries; attempt++) {
-// ... rest of logic
     try {
       const rawText = await callProvider(providerId, key, prompt, images, options);
       if (!rawText) return null;

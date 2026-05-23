@@ -92,7 +92,7 @@ export const AuthProvider = ({ children }) => {
   const logout = () => signOut(auth);
   const resetPassword = (email) => sendPasswordResetEmail(auth, email);
 
-  const loginWithGoogle = async () => {
+  const loginWithGoogle = async (referralCode = null) => {
     const provider = new GoogleAuthProvider();
     const res = await signInWithPopup(auth, provider);
     const user = res.user;
@@ -111,12 +111,25 @@ export const AuthProvider = ({ children }) => {
         credits_remaining: 3,
         generations_total: 0,
         referral_code: nanoid(6).toUpperCase(),
-        referred_by: null,
+        referred_by: referralCode,
         created_at: new Date(),
         last_active: new Date(),
         abuse_score: 0
       };
       await setDoc(userDocRef, newUser);
+
+      // Handle referral reward securely via API
+      if (referralCode) {
+        try {
+          await fetch("/api/referral/redeem", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ referralCode, newUserId: user.uid })
+          });
+        } catch (err) {
+          console.error("Referral award failed:", err);
+        }
+      }
     }
     return res;
   };

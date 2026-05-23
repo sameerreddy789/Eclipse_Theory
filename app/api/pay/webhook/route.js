@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import crypto from "crypto";
-import { db } from "../../lib/firebase-admin"; // We'll need to create this admin-sdk helper
+import { db } from "../../../lib/firebase-admin"; // We'll need to create this admin-sdk helper
 
 export async function POST(req) {
   const body = await req.text();

@@ -32,17 +32,17 @@ export default function HistoryPanel({
                 key={item.id}
                 onClick={() => onLoadItem(item)}
                 className="file-chip"
-                style={{ display: 'block', padding: 12, cursor: 'pointer' }}
+                style={{ display: 'block', padding: '12px 16px', cursor: 'pointer', maxWidth: 'none', background: 'var(--bg)', border: '1px solid var(--border)' }}
               >
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                  <span style={{ fontWeight: 700, color: 'var(--text)' }}>{item.courseName}</span>
-                  <button onClick={(e) => { e.stopPropagation(); onDeleteItem(item.id); }} style={{ background: 'none', border: 'none', color: '#ef4444' }}>
-                    <Trash2 size={12} />
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                  <span style={{ fontWeight: 700, color: 'var(--text)', fontSize: 13 }}>{item.courseName}</span>
+                  <button onClick={(e) => { e.stopPropagation(); onDeleteItem(item.id); }} style={{ background: 'none', border: 'none', color: 'var(--danger)', cursor: 'pointer', padding: '4px' }}>
+                    <Trash2 size={14} />
                   </button>
                 </div>
-                <div style={{ fontSize: 10, color: 'var(--text-dim)', display: 'flex', justifyContent: 'space-between' }}>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', display: 'flex', justifyContent: 'space-between', opacity: 0.8 }}>
                   <span>{formatHistoryDate(item.timestamp)}</span>
-                  <span>{formatHistorySize(item.output)}</span>
+                  <span style={{ fontWeight: 600 }}>{formatHistorySize(item.output)}</span>
                 </div>
               </div>
             ))}

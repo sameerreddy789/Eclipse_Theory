@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { verifyAuth } from "../../lib/auth-server";
-import { db } from "../../lib/firebase-admin";
+import { verifyAuth } from "../../../lib/auth-server";
+import { db } from "../../../lib/firebase-admin";
 import admin from "firebase-admin";
 
 export async function POST(request) {
