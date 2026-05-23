@@ -37,6 +37,7 @@ export async function POST(request) {
       // --- Tier Caps ---
       if (userData.plan === 'free') {
         if (userData.credits_remaining <= 0) {
+          // Log Event
           await db.collection("events").add({
             user_id: uid,
             event_type: "credits_exhausted",
@@ -44,6 +45,25 @@ export async function POST(request) {
             timestamp: admin.firestore.FieldValue.serverTimestamp(),
             plan: "free"
           });
+
+          // --- TRIGGER VORTEX n8n PIPELINE (High Intent) ---
+          try {
+            await fetch("https://sameerreddy098.app.n8n.cloud/webhook/vortex-master-pipeline", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                user_id: uid,
+                email: userData.email,
+                name: userData.display_name || "New Architect",
+                event_type: "credits_exhausted",
+                plan: "free",
+                source: "eclipse_theory"
+              })
+            });
+          } catch (n8nErr) {
+            console.error("n8n Trigger failed:", n8nErr);
+          }
+
           return NextResponse.json({ error: "No free credits left. Please upgrade.", code: "CREDITS_EXHAUSTED" }, { status: 402 });
         }
       } else if (userData.plan === 'premium') {
