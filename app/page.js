@@ -3,8 +3,14 @@
 import Link from "next/link";
 import { Zap, Shield, Rocket, Users, BookOpen, Star, ArrowRight, CheckCircle2, Mail, Linkedin, ChevronDown, Award } from "lucide-react";
 import "./globals.css";
+import { useAuth } from "./lib/auth";
 
 export default function LandingPage() {
+  const { user, loading } = useAuth();
+
+  const ctaLink = user ? "/dashboard" : "/signup";
+  const ctaLabel = user ? "GO TO DASHBOARD" : "GET STARTED";
+
   return (
     <div className="landing-page">
       {/* Navbar */}
@@ -17,10 +23,10 @@ export default function LandingPage() {
             <span style={{ fontWeight: '900', letterSpacing: '-0.5px' }}>ECLIPSE THEORY</span>
           </div>
           <div className="nav-right">
-            <Link href="#how-it-works" style={{ fontSize: '13px', color: 'var(--text-muted)', fontWeight: '600' }}>Process</Link>
             <Link href="#pricing" style={{ fontSize: '13px', color: 'var(--text-muted)', fontWeight: '600' }}>Pricing</Link>
-            <Link href="/login" className="api-key-btn" style={{ fontWeight: '700' }}>Sign In</Link>
-            <Link href="/signup" className="btn-save-key" style={{ display: 'flex', alignItems: 'center', height: '32px' }}>Get Started</Link>
+            <Link href={ctaLink} className="btn-save-key" style={{ display: 'flex', alignItems: 'center', height: '32px', background: 'var(--accent)', color: '#000', fontWeight: '900', padding: '0 20px', borderRadius: '50px' }}>
+              {loading ? "..." : ctaLabel}
+            </Link>
           </div>
         </div>
       </nav>
@@ -35,14 +41,14 @@ export default function LandingPage() {
           </h1>
           <p className="hero-subtitle" style={{ margin: '0 auto 40px', maxWidth: '600px' }}>
             Upload your documents, and our AI pipeline will generate exam-ready study notes, 
-            semantic search summaries, and Anki-compatible content in seconds.
+            semantic search summaries, and high-fidelity PDF content in seconds.
           </p>
           <div style={{ display: 'flex', gap: '16px', justifyContent: 'center' }}>
-            <Link href="/signup" className="btn-save-key" style={{ padding: '14px 36px', fontSize: '16px', borderRadius: '50px', boxShadow: '0 10px 20px -5px rgba(212, 175, 55, 0.2)' }}>
-              Start Learning Free
+            <Link href={ctaLink} className="btn-save-key" style={{ padding: '14px 36px', fontSize: '16px', borderRadius: '50px', boxShadow: '0 10px 20px -5px rgba(212, 175, 55, 0.2)', background: 'var(--accent)', color: '#000', fontWeight: '900' }}>
+              {loading ? "CHECKING ACCESS..." : user ? "OPEN DASHBOARD" : "START LEARNING FREE"}
             </Link>
-            <Link href="#how-it-works" className="btn-test-key" style={{ padding: '14px 36px', fontSize: '16px', borderRadius: '50px', background: 'transparent', borderColor: 'var(--accent)', color: 'var(--accent)' }}>
-              How it works
+            <Link href="#how-it-works" className="btn-test-key" style={{ padding: '14px 36px', fontSize: '16px', borderRadius: '50px', background: 'transparent', borderColor: 'var(--accent)', color: 'var(--accent)', fontWeight: '700' }}>
+              HOW IT WORKS
             </Link>
           </div>
         </div>
