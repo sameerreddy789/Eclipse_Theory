@@ -29,10 +29,6 @@ export default function LandingPage() {
       <section className="hero-section" style={{ paddingTop: '140px', paddingBottom: '60px', position: 'relative', overflow: 'hidden' }}>
         <div style={{ position: 'absolute', top: '-100px', left: '50%', transform: 'translateX(-50%)', width: '600px', height: '600px', background: 'radial-gradient(circle, rgba(212, 175, 55, 0.1) 0%, transparent 70%)', zIndex: -1 }}></div>
         <div className="hero">
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '6px 12px', background: 'rgba(212, 175, 55, 0.05)', border: '1px solid var(--border)', borderRadius: '99px', marginBottom: '24px' }}>
-            <Award size={14} color="var(--accent)" />
-            <span style={{ fontSize: '10px', fontWeight: '800', color: 'var(--accent)', letterSpacing: '1px' }}>Voted #1 AI Learning Platform 2026</span>
-          </div>
           <h1 className="hero-title" style={{ textShadow: '0 0 30px rgba(212, 175, 55, 0.1)' }}>
             Master Any Subject <br />
             <span style={{ color: 'var(--accent)', filter: 'brightness(1.1)' }}>with AI Intelligence.</span>
