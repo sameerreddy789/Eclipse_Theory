@@ -109,18 +109,48 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Testimonials */}
-      <section style={{ padding: '80px 24px', background: '#050502', borderTop: '1px solid var(--border)' }}>
-        <div style={{ display: 'flex', gap: '20px', maxWidth: '1000px', margin: '0 auto', flexWrap: 'wrap' }}>
+      {/* Moving Testimonials Section */}
+      <section style={{ padding: '80px 0', background: 'rgba(212, 175, 55, 0.02)', borderTop: '1px solid var(--border)', overflow: 'hidden' }}>
+        <div className="hero" style={{ padding: '0 0 40px' }}>
+          <h2 style={{ fontSize: '32px', fontWeight: '900', color: 'var(--accent)', marginBottom: '16px' }}>TRUSTED BY SCHOLARS</h2>
+        </div>
+        
+        <style dangerouslySetInnerHTML={{ __html: `
+          @keyframes scroll {
+            0% { transform: translateX(0); }
+            100% { transform: translateX(calc(-350px * 5)); }
+          }
+          .testimonial-track {
+            display: flex;
+            width: calc(350px * 10);
+            animation: scroll 40s linear infinite;
+            gap: 20px;
+            padding: 20px 0;
+          }
+          .testimonial-track:hover {
+            animation-play-state: paused;
+          }
+        `}} />
+
+        <div className="testimonial-track">
           {[
-            { name: "Arjun Reddy", role: "Medical Student", text: "Turned my anatomy notes into an Anki deck in minutes. A game changer." },
-            { name: "Sarah J.", role: "Full-stack Dev", text: "The Mermaid diagram generation is scarily accurate. Worth every penny." }
+            { name: "Arjun Reddy", role: "Medical Student", text: "Turned 500 pages of anatomy notes into a 20-page master guide. Lifecycle saver." },
+            { name: "Sarah Jenkins", role: "Full-stack Developer", text: "The Mermaid diagram generation is scarily accurate. Worth every penny." },
+            { name: "Dr. Elena Rossi", role: "Research Fellow", text: "Finally an AI that understands technical context. The vector synthesis is brilliant." },
+            { name: "James Chen", role: "MBA Candidate", text: "I use it for case study synthesis. What used to take hours now takes seconds." },
+            { name: "Priya Sharma", role: "Law Student", text: "The OCR handled my messy lecture notes perfectly. Simply the best study tool." },
+            // Duplicate for infinite loop effect
+            { name: "Arjun Reddy", role: "Medical Student", text: "Turned 500 pages of anatomy notes into a 20-page master guide. Lifecycle saver." },
+            { name: "Sarah Jenkins", role: "Full-stack Developer", text: "The Mermaid diagram generation is scarily accurate. Worth every penny." },
+            { name: "Dr. Elena Rossi", role: "Research Fellow", text: "Finally an AI that understands technical context. The vector synthesis is brilliant." },
+            { name: "James Chen", role: "MBA Candidate", text: "I use it for case study synthesis. What used to take hours now takes seconds." },
+            { name: "Priya Sharma", role: "Law Student", text: "The OCR handled my messy lecture notes perfectly. Simply the best study tool." }
           ].map((t, i) => (
-            <div key={i} style={{ flex: '1', minWidth: '300px', padding: '30px', background: 'rgba(212, 175, 55, 0.03)', borderRadius: '20px', border: '1px solid rgba(212, 175, 55, 0.1)' }}>
+            <div key={i} style={{ width: '330px', flexShrink: 0, padding: '30px', background: 'var(--bg-subtle)', borderRadius: '20px', border: '1px solid var(--border)', boxShadow: '0 10px 30px rgba(0,0,0,0.1)' }}>
               <div style={{ display: 'flex', gap: 4, marginBottom: '16px' }}>
                 {[1,2,3,4,5].map(s => <Star key={s} size={12} fill="var(--accent)" color="var(--accent)" />)}
               </div>
-              <p style={{ color: 'var(--text-muted)', fontSize: '14px', fontStyle: 'italic', marginBottom: '20px' }}>"{t.text}"</p>
+              <p style={{ color: 'var(--text)', fontSize: '14px', fontStyle: 'italic', marginBottom: '20px', lineHeight: '1.6' }}>"{t.text}"</p>
               <div style={{ fontSize: '13px', fontWeight: '800', color: 'var(--accent)' }}>{t.name}</div>
               <div style={{ fontSize: '11px', color: 'var(--text-dim)' }}>{t.role}</div>
             </div>
