@@ -655,15 +655,93 @@ footer {
   margin-top: 8px;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation-duration: 0.01ms !important;
-    transition-duration: 0.01ms !important;
-  }
+/* SAAS LANDING PAGE */
+.landing-page {
+  background: var(--bg);
+  color: var(--text);
 }
+.landing-nav {
+  position: fixed;
+  top: 0;
+  width: 100%;
+  z-index: 100;
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border);
+}
+.hero-section {
+  padding: 120px 24px 60px;
+  text-align: center;
+  max-width: 1000px;
+  margin: 0 auto;
+}
+.hero-title {
+  font-size: 56px;
+  font-weight: 800;
+  letter-spacing: -2px;
+  margin-bottom: 20px;
+  color: var(--primary);
+}
+.hero-subtitle {
+  font-size: 20px;
+  color: var(--text-muted);
+  margin-bottom: 40px;
+  max-width: 600px;
+  margin-left: auto;
+  margin-right: auto;
+}
+.pricing-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 24px;
+  max-width: 800px;
+  margin: 60px auto;
+}
+.pricing-card {
+  padding: 40px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg);
+  text-align: center;
+}
+.pricing-card.premium {
+  border-color: var(--accent);
+  box-shadow: 0 10px 30px rgba(212, 175, 55, 0.1);
+}
+.auth-container {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-subtle);
+  padding: 24px;
+}
+.auth-card {
+  width: 100%;
+  max-width: 400px;
+  background: var(--bg);
+  padding: 40px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+.auth-header { text-align: center; margin-bottom: 32px; }
+.auth-form { display: flex; flex-direction: column; gap: 16px; }
 
-
-/* MARKDOWN PREVIEW STYLES */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0A0A0A;
+    --bg-subtle: #141414;
+    --bg-input: #1F1F1F;
+    --bg-elevated: #262626;
+    --border: #262626;
+    --text: #FFFFFF;
+    --text-muted: #A3A3A3;
+    --text-dim: #737373;
+    --primary: #FFFFFF;
+  }
+  nav { background: rgba(10, 10, 10, 0.8); }
+}
 .markdown-preview h1 {
   font-size: 28px;
   font-weight: 700;

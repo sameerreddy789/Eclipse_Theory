@@ -142,11 +142,24 @@ async function callProvider(providerId, apiKey, prompt, images = [], options = {
  * Parses JSON response. Returns null on failure.
  */
 export async function callGemini(keyEntry, prompt, images = [], retries = 1, options = {}) {
-  const { providerId, key } = typeof keyEntry === "string"
-    ? { providerId: "gemini", key: keyEntry }
-    : keyEntry;
+  // SaaS Upgrade: Use System keys if keyEntry is null or 'system'
+  let providerId, key;
+  
+  if (!keyEntry || keyEntry === "system") {
+    providerId = options.preferredProvider || "gemini";
+    key = providerId === "gemini" ? process.env.GEMINI_API_KEY :
+          providerId === "groq" ? process.env.GROQ_API_KEY :
+          process.env.OPENROUTER_API_KEY;
+  } else {
+    ({ providerId, key } = typeof keyEntry === "string"
+      ? { providerId: "gemini", key: keyEntry }
+      : keyEntry);
+  }
+  
+  if (!key) throw new Error("No API key available for " + providerId);
 
   for (let attempt = 0; attempt <= retries; attempt++) {
+// ... rest of logic
     try {
       const rawText = await callProvider(providerId, key, prompt, images, options);
       if (!rawText) return null;

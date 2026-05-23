@@ -1,3 +1,6 @@
+import { AuthProvider } from "./lib/auth";
+import "./globals.css";
+
 export const metadata = {
   title: "Eclipse Theory — Master Learning Document Generator",
   description:
@@ -19,7 +22,11 @@ export default function RootLayout({ children }) {
           rel="stylesheet"
         />
       </head>
-      <body>{children}</body>
+      <body>
+        <AuthProvider>
+          {children}
+        </AuthProvider>
+      </body>
     </html>
   );
 }

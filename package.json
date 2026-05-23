@@ -8,12 +8,26 @@
     "start": "next start"
   },
   "dependencies": {
+    "@tailwindcss/postcss": "^4.3.0",
     "@xenova/transformers": "^2.17.2",
+    "clsx": "^2.1.1",
     "fflate": "^0.8.2",
+    "firebase": "^12.13.0",
+    "firebase-admin": "^13.10.0",
+    "framer-motion": "^12.40.0",
+    "lucide-react": "^1.16.0",
+    "nanoid": "^5.1.11",
     "next": "^15.3.2",
     "pdfjs-dist": "^4.9.155",
+    "razorpay": "^2.9.6",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
+    "tailwind-merge": "^3.6.0",
     "tesseract.js": "^7.0.0"
+  },
+  "devDependencies": {
+    "autoprefixer": "^10.5.0",
+    "postcss": "^8.5.15",
+    "tailwindcss": "^4.3.0"
   }
 }
