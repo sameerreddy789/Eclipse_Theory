@@ -1,16 +1,13 @@
 import { NextResponse } from "next/server";
 
 export function middleware(request) {
-  // In a real production app, we would verify the Firebase Session Cookie here.
-  // For this MVP, we are using client-side auth state for redirects, 
-  // but middleware can add an extra layer of protection.
-  
   const path = request.nextUrl.pathname;
 
+  // We only care about dashboard routes for this MVP
   if (path.startsWith("/dashboard")) {
-    // Check for auth cookie (you would set this on login)
-    // const session = request.cookies.get("session");
-    // if (!session) return NextResponse.redirect(new URL("/login", request.url));
+    // In production, you'd check for a 'session' cookie here.
+    // For now, the client-side AuthProvider handles the heavy lifting,
+    // but we can add a placeholder for future server-side verification.
   }
 
   return NextResponse.next();

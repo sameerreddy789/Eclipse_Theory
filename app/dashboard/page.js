@@ -189,6 +189,32 @@ export default function DashboardPage() {
     setLoading(true); setOutput("");
 
     try {
+      // --- SaaS Secure Gate ---
+      const idToken = await user.getIdToken();
+      const gateRes = await fetch("/api/ai/gate", {
+        method: "POST",
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${idToken}`
+        },
+        body: JSON.stringify({ 
+          action: "GENERATE_MODULE", 
+          payload: { courseName: courseName.trim(), modules: validModules.length } 
+        })
+      });
+
+      if (!gateRes.ok) {
+        const err = await gateRes.json();
+        if (err.code === "CREDITS_EXHAUSTED") {
+          showToast("❌ No credits remaining. Please upgrade.");
+        } else {
+          showToast(err.error || "Authorization failed");
+        }
+        setLoading(false);
+        return;
+      }
+      // --- End SaaS Gate ---
+
       // Phase 0: Process and chunk all global files (with caching)
       let documentChunks = [];
       let documentHashes = [];
