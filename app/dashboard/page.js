@@ -5,14 +5,16 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "../lib/auth";
 import { deductCredit } from "../lib/credits";
 import "../globals.css";
-import { callGemini, buildModulePrompt, buildGlossaryPrompt, PROVIDER_LIST, testApiKey, extractTopicsFromText } from "../lib/ai/gemini";
+
+// Libs
+import { callGemini, buildModulePrompt, buildGlossaryPrompt, PROVIDER_LIST, getKeyStats } from "../lib/ai/gemini";
 import { slugify, assembleMarkdown } from "../lib/content/markdown";
 import { processFiles, getFileIcon, formatFileSize } from "../lib/files";
 import { chunkDocuments, findRelevantChunks, generateChunkEmbeddings } from "../lib/content/chunking";
-import { semanticSearch, hybridSearch } from "../lib/content/embeddings";
-import { extractTextFromImage, isImageFile, mightNeedOCR } from "../lib/ocr";
+import { hybridSearch } from "../lib/content/embeddings";
+import { extractTextFromImage, isImageFile } from "../lib/ocr";
 import { generateAnkiCSV, generateNotionMarkdown, generateStudyChecklist, downloadFile } from "../lib/export";
-import { generateTopicTwoStage, getKeyStats } from "../lib/ai/twoStage";
+import { generateTopicTwoStage } from "../lib/ai/twoStage";
 import { 
   getCachedDocumentChunks, 
   cacheDocumentChunks, 
@@ -30,190 +32,142 @@ import {
   deleteHistoryItem,
   clearHistory,
   getHistoryStats,
-  formatHistoryDate,
-  formatHistorySize,
 } from "../lib/storage/history";
-import {
-  parseTextStructure,
-  validateExtractedStructure,
-  getExtractionStats,
-} from "../lib/ai/topicExtractor";
-import MarkdownPreview from "../components/MarkdownPreview";
+import { parseTextStructure, validateExtractedStructure, getExtractionStats } from "../lib/ai/topicExtractor";
+import { doc, db } from "../lib/firebase";
+import { updateDoc } from "firebase/firestore";
 
-// UI Components
-import { Zap, LogOut, CreditCard, User, ChevronDown, Plus, Trash2, History as HistoryIcon, Key, Upload, Star } from "lucide-react";
+// Components
+import MarkdownPreview from "../components/MarkdownPreview";
+import DashboardNavbar from "../components/dashboard/DashboardNavbar";
+import APIKeyPanel from "../components/dashboard/APIKeyPanel";
+import HistoryPanel from "../components/dashboard/HistoryPanel";
+import ModuleBlock from "../components/dashboard/ModuleBlock";
+import UpgradeModal from "../components/dashboard/UpgradeModal";
+import { X, Upload, Plus, ChevronRight, Copy, Share2, Sparkles } from "lucide-react";
+
+let nextModuleId = 1000;
+let nextTopicId = 5000;
 
 export default function DashboardPage() {
   const { user, userData, loading: authLoading, logout } = useAuth();
   const router = useRouter();
 
-  const [apiKeys, setApiKeys] = useState([]); // [{providerId, key}]
+  // State
+  const [apiKeys, setApiKeys] = useState([]);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  // ... (rest of state)
+
+  const [topicDataMapState, setTopicDataMapState] = useState({});
+  const [moduleMetasState, setModuleMetasState] = useState([]);
+  const [glossaryDataState, setGlossaryDataState] = useState({ terms: [] });
+  const [loading, setLoading] = useState(false);
+  const [showKeyInput, setShowKeyInput] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [courseName, setCourseName] = useState("");
+  const [depth, setDepth] = useState("detailed");
+  const [speedMode, setSpeedMode] = useState(false);
+  const [useSemanticSearch, setUseSemanticSearch] = useState(true);
+  const [useOCR, setUseOCR] = useState(false);
+  const [globalFiles, setGlobalFiles] = useState([]);
+  const [history, setHistory] = useState([]);
+  const [historyStats, setHistoryStats] = useState({ totalDocuments: 0, totalTopics: 0, totalSizeMB: "0.00" });
+  const [previewMode, setPreviewMode] = useState("preview");
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importText, setImportText] = useState("");
+  const [extracting, setExtracting] = useState(false);
+  const [extractedModules, setExtractedModules] = useState(null);
+  const [extractionError, setExtractionError] = useState("");
+  const [dragOver, setDragOver] = useState(false);
+  const [modules, setModules] = useState([{ id: 1, name: "", topics: [{ id: 1, name: "" }] }]);
+  const [progress, setProgress] = useState("");
+  const [toast, setToast] = useState("");
+  const [cacheStats, setCacheStats] = useState({ totalSizeMB: "0", counts: {} });
   
+  const outputRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const keyIndexRef = useRef(0);
+
   // Sync settings with Firestore
   const syncSettings = async (updates) => {
     if (!user) return;
     try {
       const userRef = doc(db, "users", user.uid);
       await updateDoc(userRef, updates);
-    } catch (err) {
-      console.error("Failed to sync settings:", err);
-    }
+    } catch (err) { console.error("Sync failed:", err); }
   };
 
-  // Load keys from userData if available
   useEffect(() => {
-    if (userData?.api_keys) {
-      setApiKeys(userData.api_keys);
-    }
-    // Fallback to localStorage for legacy
-    const saved = localStorage.getItem("eclipse-theory-keys-v2");
-    if (saved && !userData?.api_keys) {
-      try { 
-        const parsed = JSON.parse(saved); 
-        if (Array.isArray(parsed)) {
-          setApiKeys(parsed);
-          syncSettings({ api_keys: parsed }); // Migrate to cloud
-        }
-      } catch {}
-    }
+    if (userData?.api_keys) setApiKeys(userData.api_keys);
     clearOldCaches(7);
     updateCacheStats();
     updateHistoryStats();
   }, [userData]);
 
-  const addApiKey = () => {
-    if (!newKey.trim() || newKey.trim().length < 5) { showToast("Enter a valid API key"); return; }
-    const updated = [...apiKeys, { providerId: newProvider, key: newKey.trim() }];
+  const updateCacheStats = () => setCacheStats(getCacheStats());
+  const updateHistoryStats = () => { setHistory(getHistory()); setHistoryStats(getHistoryStats()); };
+
+  const showToast = useCallback((msg) => {
+    setToast(msg);
+    setTimeout(() => setToast(""), 2200);
+  }, []);
+
+  // CRUD Handlers
+  const addModule = () => setModules([...modules, { id: ++nextModuleId, name: "", topics: [{ id: ++nextTopicId, name: "" }] }]);
+  const removeModule = (id) => setModules(modules.filter(m => m.id !== id));
+  const updateModuleName = (id, name) => setModules(modules.map(m => m.id === id ? { ...m, name } : m));
+  const addTopic = (mId) => setModules(modules.map(m => m.id === mId ? { ...m, topics: [...m.topics, { id: ++nextTopicId, name: "" }] } : m));
+  const removeTopic = (mId, tId) => setModules(modules.map(m => m.id === mId ? { ...m, topics: m.topics.filter(t => t.id !== tId) } : m));
+  const updateTopicName = (mId, tId, name) => setModules(modules.map(m => m.id === mId ? { ...m, topics: m.topics.map(t => t.id === tId ? { ...t, name } : t) } : m));
+
+  const handleAddKey = (providerId, key) => {
+    if (!key.trim()) return;
+    const updated = [...apiKeys, { providerId, key: key.trim() }];
     setApiKeys(updated);
-    syncSettings({ api_keys: updated }); // Persist to Cloud
-    const prov = PROVIDER_LIST.find((p) => p.id === newProvider);
-    showToast(`${prov?.name} key added (${updated.length} total)`);
+    syncSettings({ api_keys: updated });
+    showToast("Key added");
   };
 
-  const removeApiKey = (idx) => {
+  const handleRemoveKey = (idx) => {
     const updated = apiKeys.filter((_, i) => i !== idx);
     setApiKeys(updated);
-    syncSettings({ api_keys: updated }); // Persist to Cloud
+    syncSettings({ api_keys: updated });
     showToast("Key removed");
   };
-  const keyIndexRef = useRef(0);
-  const getNextKey = () => {
-    if (apiKeys.length === 0) return null;
-    const entry = apiKeys[keyIndexRef.current % apiKeys.length];
-    keyIndexRef.current++;
-    return entry;
-  };
 
-  // Module/topic CRUD
-  const addModule = () => {
-    const mId = ++nextModuleId; const tId = ++nextTopicId;
-    setModules((p) => [...p, { id: mId, name: "", topics: [{ id: tId, name: "" }] }]);
-  };
-  const removeModule = (mId) => setModules((p) => p.filter((m) => m.id !== mId));
-  const updateModuleName = (mId, name) => setModules((p) => p.map((m) => m.id === mId ? { ...m, name } : m));
-  const addTopic = (mId) => {
-    const tId = ++nextTopicId;
-    setModules((p) => p.map((m) => m.id === mId ? { ...m, topics: [...m.topics, { id: tId, name: "" }] } : m));
-  };
-  const removeTopic = (mId, tId) => setModules((p) => p.map((m) => m.id === mId ? { ...m, topics: m.topics.filter((t) => t.id !== tId) } : m));
-  const updateTopicName = (mId, tId, name) => setModules((p) => p.map((m) => m.id === mId ? { ...m, topics: m.topics.map((t) => t.id === tId ? { ...t, name } : t) } : m));
-
-  // Global file management
   const handleGlobalFiles = (files) => {
-    if (files && files.length > 0) {
-      const newFiles = Array.from(files);
-      setGlobalFiles((prev) => [...prev, ...newFiles]);
-      showToast(`${files.length} file${files.length > 1 ? "s" : ""} added`);
-    }
-  };
-  const removeGlobalFile = (idx) => {
-    setGlobalFiles((prev) => prev.filter((_, i) => i !== idx));
-  };
-
-  const handleDrop = (e) => {
-    e.preventDefault(); setDragOver(false);
-    handleGlobalFiles(e.dataTransfer.files);
+    const newFiles = Array.from(files);
+    setGlobalFiles([...globalFiles, ...newFiles]);
+    showToast(`${files.length} files added`);
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
-    // Check API keys first
-    if (apiKeys.length === 0) { 
-      setShowKeyInput(true); 
-      showToast("Add at least one API key first"); 
-      return; 
-    }
-    
-    // Check key configuration and show recommendations
-    const keyStats = getKeyStats(apiKeys);
-    if (keyStats.mode === "none") {
-      showToast("Add at least one API key (Gemini, OpenRouter, or Groq)");
-      setShowKeyInput(true);
-      return;
-    }
-    
-    // Show configuration info
-    const hasGemini = apiKeys.some(k => k.providerId === "gemini");
-    const hasOpenRouter = apiKeys.some(k => k.providerId === "openrouter");
-    const hasGroq = apiKeys.some(k => k.providerId === "groq");
-    
-    let configMessage = "";
-    if (hasGemini && hasOpenRouter) {
-      configMessage = "✓ Optimal: Gemini (analyze) + Llama 70B (write)";
-    } else if (hasGemini && hasGroq) {
-      configMessage = "✓ Fast: Gemini (analyze) + Groq Llama 70B (write)";
-    } else if (hasGroq && hasOpenRouter) {
-      configMessage = "✓ Hybrid: Groq (analyze) + Llama 70B (write)";
-    } else if (hasGemini) {
-      configMessage = "⚠️ Gemini only - Add OpenRouter or Groq for better writing";
-    } else if (hasOpenRouter) {
-      configMessage = "⚠️ OpenRouter only - Add Gemini for document analysis";
-    } else if (hasGroq) {
-      configMessage = "✓ Groq only - Fast but may hit rate limits";
-    }
-    
-    showToast(configMessage);
-    
-    keyIndexRef.current = 0;
-    if (!courseName.trim()) { showToast("Please enter a course name"); return; }
+    if (apiKeys.length === 0) { setShowKeyInput(true); showToast("Add an API key first"); return; }
+    if (!courseName.trim()) { showToast("Enter a course name"); return; }
 
     const validModules = modules
-      .filter((m) => m.name.trim())
-      .map((m) => ({ name: m.name.trim(), topics: m.topics.filter((t) => t.name.trim()).map((t) => t.name.trim()) }))
-      .filter((m) => m.topics.length > 0);
+      .filter(m => m.name.trim())
+      .map(m => ({ name: m.name.trim(), topics: m.topics.filter(t => t.name.trim()).map(t => t.name.trim()) }))
+      .filter(m => m.topics.length > 0);
 
-    if (!validModules.length) { showToast("Add at least one module with topics"); return; }
+    if (!validModules.length) { showToast("Add at least one module"); return; }
 
-    const totalTopics = validModules.reduce((s, m) => s + m.topics.length, 0);
-    setLoading(true); setOutput("");
-
+    setLoading(true); setOutput(""); setTopicDataMapState({});
+    
     try {
-      // --- SaaS Secure Gate ---
       const idToken = await user.getIdToken();
       const gateRes = await fetch("/api/ai/gate", {
         method: "POST",
-        headers: { 
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${idToken}`
-        },
-        body: JSON.stringify({ 
-          action: "GENERATE_MODULE", 
-          payload: { courseName: courseName.trim(), modules: validModules.length } 
-        })
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${idToken}` },
+        body: JSON.stringify({ action: "GENERATE_MODULE", payload: { courseName: courseName.trim(), modules: validModules.length } })
       });
 
       if (!gateRes.ok) {
         const err = await gateRes.json();
-        if (err.code === "CREDITS_EXHAUSTED") {
-          showToast("❌ No credits remaining. Please upgrade.");
-        } else {
-          showToast(err.error || "Authorization failed");
-        }
-        setLoading(false);
-        return;
+        showToast(err.error || "Authorization failed");
+        setLoading(false); return;
       }
-      // --- End SaaS Gate ---
 
       // Phase 0: Process and chunk all global files (with caching)
       let documentChunks = [];
@@ -221,907 +175,271 @@ export default function DashboardPage() {
       let globalImages = [];
 
       if (globalFiles.length > 0) {
-        setProgress(`Processing ${globalFiles.length} uploaded file${globalFiles.length > 1 ? "s" : ""}...`);
+        setProgress(`Processing ${globalFiles.length} uploaded files...`);
         
-        // OCR for images if enabled
         const filesToProcess = [];
         for (const file of globalFiles) {
           if (useOCR && isImageFile(file)) {
             setProgress(`Running OCR on ${file.name}...`);
-            const ocrResult = await extractTextFromImage(file, (progress) => {
-              setProgress(`OCR: ${file.name} (${progress}%)`);
-            });
-            
+            const ocrResult = await extractTextFromImage(file, (p) => setProgress(`OCR: ${file.name} (${p}%)`));
             if (ocrResult.success && ocrResult.text.length > 50) {
-              filesToProcess.push({
-                ...file,
-                ocrText: ocrResult.text,
-                ocrConfidence: ocrResult.confidence,
-              });
-              showToast(`OCR extracted ${ocrResult.text.length} chars from ${file.name}`);
-            } else {
-              filesToProcess.push(file);
-            }
-          } else {
-            filesToProcess.push(file);
-          }
+              filesToProcess.push({ ...file, ocrText: ocrResult.text });
+            } else filesToProcess.push(file);
+          } else filesToProcess.push(file);
         }
         
         const { processedFiles, images } = await processFiles(filesToProcess);
         globalImages = images;
 
-        if (processedFiles.length > 0) {
-          setProgress("Checking cache for processed documents...");
-          
-          // Try to get cached chunks for each file
-          for (const file of globalFiles) {
-            const cached = await getCachedDocumentChunks(file);
-            if (cached) {
-              documentChunks.push(...cached.chunks);
-              documentHashes.push(cached.hash);
-            } else {
-              // Process and cache new file
-              const fileData = processedFiles.find((pf) => pf.fileName === file.name);
-              if (fileData) {
-                const chunks = chunkDocuments([fileData]);
-                const hash = await cacheDocumentChunks(file, chunks);
-                documentChunks.push(...chunks);
-                if (hash) documentHashes.push(hash);
-              }
+        for (const file of globalFiles) {
+          const cached = await getCachedDocumentChunks(file);
+          if (cached) {
+            documentChunks.push(...cached.chunks);
+            documentHashes.push(cached.hash);
+          } else {
+            const fileData = processedFiles.find(pf => pf.fileName === file.name);
+            if (fileData) {
+              const chunks = chunkDocuments([fileData]);
+              const hash = await cacheDocumentChunks(file, chunks);
+              documentChunks.push(...chunks);
+              if (hash) documentHashes.push(hash);
             }
           }
-          
-          // Generate embeddings for semantic search
-          if (useSemanticSearch && documentChunks.length > 0) {
-            setProgress(`Generating embeddings for ${documentChunks.length} chunks...`);
-            documentChunks = await generateChunkEmbeddings(documentChunks, (current, total) => {
-              setProgress(`Generating embeddings... ${current}/${total}`);
-            });
-            showToast(`Generated embeddings for ${documentChunks.length} chunks`);
-          }
-          
-          const cachedCount = documentHashes.length;
-          const totalCount = globalFiles.length;
-          if (cachedCount > 0) {
-            showToast(`Used cache for ${cachedCount}/${totalCount} files (${documentChunks.length} chunks)`);
-          } else {
-            showToast(`Processed ${processedFiles.length} files into ${documentChunks.length} searchable chunks`);
-          }
-          updateCacheStats();
+        }
+        
+        if (useSemanticSearch && documentChunks.length > 0) {
+          setProgress(`Generating embeddings for ${documentChunks.length} chunks...`);
+          documentChunks = await generateChunkEmbeddings(documentChunks, (c, t) => setProgress(`Embeddings... ${c}/${t}`));
         }
       }
 
       // Check if we can use cached full document
       if (documentHashes.length > 0) {
-        setProgress("Checking for cached document...");
-        const cacheSettings = { useSemanticSearch, useOCR, preferSpeed: speedMode };
-        const cachedDoc = await getCachedGeneratedDocument(courseName.trim(), validModules, documentHashes, depth, cacheSettings);
+        const cachedDoc = await getCachedGeneratedDocument(courseName.trim(), validModules, documentHashes, depth, { useSemanticSearch, useOCR, preferSpeed: speedMode });
         if (cachedDoc) {
           setOutput(cachedDoc);
-          showToast("Loaded from cache (instant!)");
-          setLoading(false);
-          setProgress("");
-          setTimeout(() => outputRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
-          return;
+          setLoading(false); setProgress(""); return;
         }
       }
 
-      // Phase 1: Module metadata (sequential to avoid rate limits)
+      // Phase 1: Module metadata
       setProgress(`Generating module overviews (${validModules.length})...`);
-      const analyzerKey = apiKeys.find((k) => k.providerId === "gemini") || apiKeys[0];
+      const analyzerKey = apiKeys.find(k => k.providerId === "gemini") || apiKeys[0];
       const moduleMetas = [];
-      
       for (let i = 0; i < validModules.length; i++) {
         const m = validModules[i];
         const relevantChunks = findRelevantChunks(documentChunks, m.name, 5);
-        const context = relevantChunks.map((c) => `[${c.metadata.fileName}]\n${c.text}`).join("\n\n");
-        
-        const meta = await callGemini(
-          analyzerKey,
-          buildModulePrompt(m.name, m.topics, courseName.trim(), context),
-          globalImages
-        );
-        
-        // Ensure module has metadata even if generation fails
-        if (!meta) {
-          console.warn(`Module metadata generation failed for: ${m.name}`);
-          moduleMetas.push({ 
-            overview: `This module covers ${m.name} with ${m.topics.length} topics.`, 
-            objectives: m.topics.map(t => `Understand ${t}`), 
-            estimatedHours: m.topics.length * 0.5, 
-            difficulty: "Medium", 
-            prerequisites: "None" 
-          });
-        } else {
-          moduleMetas.push(meta);
-        }
-        
-        // Small delay between module calls to avoid rate limits
-        if (i < validModules.length - 1) {
-          await new Promise((r) => setTimeout(r, 7000)); // Increased to 7 seconds
-        }
+        const context = relevantChunks.map(c => `[${c.metadata.fileName}]\n${c.text}`).join("\n\n");
+        const meta = await callGemini(analyzerKey, buildModulePrompt(m.name, m.topics, courseName.trim(), context), globalImages);
+        moduleMetas.push(meta || { overview: `Module: ${m.name}` });
+        if (i < validModules.length - 1) await new Promise(r => setTimeout(r, 4000));
       }
 
-      // Phase 2: Topics with two-stage generation (with analysis caching)
+      // Phase 2: Topics with two-stage generation
       const topicDataMap = {};
-      let completed = 0;
-      let cacheHits = 0;
-      const BATCH_SIZE = 2; // Reduced batch size for two-stage (more API calls)
-      const allTopicJobs = validModules.flatMap((m, mi) =>
-        m.topics.map((t, ti) => ({ mi, ti, topicName: t, moduleName: m.name }))
-      );
-
-      for (let i = 0; i < allTopicJobs.length; i += BATCH_SIZE) {
-        const batch = allTopicJobs.slice(i, i + BATCH_SIZE);
-        const results = await Promise.all(
-          batch.map(async (job) => {
-            // Find most relevant chunks for this specific topic
-            const query = `${job.topicName} ${job.moduleName}`;
-            
-            // Use semantic search if embeddings are available, otherwise fallback to keyword
-            let relevantChunks;
-            if (useSemanticSearch && documentChunks[0]?.embedding) {
-              relevantChunks = await hybridSearch(query, documentChunks, 8);
-            } else {
-              relevantChunks = findRelevantChunks(documentChunks, query, 8);
-            }
-
-            // Try to get cached analysis first
-            let extractedInfo = null;
-            if (documentHashes.length > 0) {
-              extractedInfo = await getCachedAnalysisResult(job.topicName, job.moduleName, documentHashes);
-              if (extractedInfo) {
-                cacheHits++;
-                console.log(`[Cache] Using cached analysis for "${job.topicName}"`);
-              }
-            }
-
-            // Generate with cached analysis if available
-            const result = await generateTopicTwoStage(
-              job.topicName,
-              job.moduleName,
-              courseName.trim(),
-              depth,
-              relevantChunks,
-              apiKeys,
-              globalImages,
-              speedMode,
-              extractedInfo // Pass cached analysis
-            );
-
-            // Cache the analysis result if we just generated it
-            if (!extractedInfo && result && documentHashes.length > 0) {
-              // Extract the analysis info from result if available
-              if (result.sourcesUsed && result.sourcesUsed.length > 0) {
-                await cacheAnalysisResult(job.topicName, job.moduleName, documentHashes, {
-                  sources: result.sourcesUsed,
-                  // Store minimal info for cache
-                });
-              }
-            }
-
-            return result;
-          })
-        );
+      const allTopicJobs = validModules.flatMap((m, mi) => m.topics.map((t, ti) => ({ mi, ti, topicName: t, moduleName: m.name })));
+      for (let i = 0; i < allTopicJobs.length; i++) {
+        const job = allTopicJobs[i];
+        setProgress(`Generating topics... ${i+1}/${allTopicJobs.length}`);
         
-        // Ensure all results are valid, provide fallback for failed topics
-        batch.forEach((job, idx) => { 
-          const result = results[idx];
-          if (!result) {
-            console.warn(`Topic generation failed for: ${job.topicName}`);
-            // Provide minimal fallback content
-            topicDataMap[`${job.mi}-${job.ti}`] = {
-              difficulty: "Medium",
-              estimatedMinutes: 30,
-              introduction: `This topic covers ${job.topicName}.`,
-              coreConcept: `${job.topicName} is an important concept in ${job.moduleName}.`,
-              steps: ["Step 1: Understand the basics", "Step 2: Practice examples", "Step 3: Apply knowledge"],
-              types: [],
-              properties: [],
-              diagram: "Diagram not available",
-              realWorldAnalogy: "Content generation failed. Please regenerate this topic.",
-              codeLanguage: "text",
-              codeExample: "// Content not available",
-              codeInput: "",
-              codeProcess: "",
-              codeOutput: "",
-              keyPoints: ["Content generation failed", "Please regenerate this topic"],
-              interviewQuestions: [],
-              commonMistakes: [],
-              edgeCases: [],
-              advantages: [],
-              disadvantages: [],
-              relatedTopics: [],
-              summary: `${job.topicName} - content generation failed.`
-            };
-          } else {
-            topicDataMap[`${job.mi}-${job.ti}`] = result;
-          }
-        });
-        completed += batch.length;
-        const cacheMsg = cacheHits > 0 ? ` (${cacheHits} cached)` : "";
-        setProgress(`Generating topics... ${completed}/${totalTopics}${cacheMsg} (${keyStats.mode} mode)`);
-        if (i + BATCH_SIZE < allTopicJobs.length) await new Promise((r) => setTimeout(r, 7000)); // Increased delay
+        const query = `${job.topicName} ${job.moduleName}`;
+        const relevantChunks = useSemanticSearch ? await hybridSearch(query, documentChunks, 8) : findRelevantChunks(documentChunks, query, 8);
+
+        const result = await generateTopicTwoStage(job.topicName, job.moduleName, courseName.trim(), depth, relevantChunks, apiKeys, globalImages, speedMode);
+        topicDataMap[`${job.mi}-${job.ti}`] = result;
+        if (i < allTopicJobs.length - 1) await new Promise(r => setTimeout(r, 3000));
       }
 
-      if (cacheHits > 0) {
-        showToast(`Used cache for ${cacheHits}/${totalTopics} topics`);
-        updateCacheStats();
-      }
-
-      // Phase 3: Glossary (with error handling and better provider selection)
+      // Phase 3: Glossary
       setProgress("Generating glossary...");
-      const allTopicNames = validModules.flatMap((m) => m.topics);
-      let glossaryData = { terms: [] };
-      
-      try {
-        // Use writer key for better quality glossary generation
-        const glossaryKey = apiKeys.find((k) => k.providerId === "openrouter") || 
-                           apiKeys.find((k) => k.providerId === "groq") || 
-                           analyzerKey;
-        
-        const systemPrompt = "You are an expert educator creating a comprehensive glossary for students. Focus on technical terms and key concepts.";
-        
-        const result = await callGemini(
-          glossaryKey,
-          buildGlossaryPrompt(courseName.trim(), allTopicNames),
-          [],
-          2,
-          { systemPrompt }
-        );
-        
-        if (result && result.terms && result.terms.length > 0) {
-          glossaryData = result;
-          showToast(`Generated glossary with ${result.terms.length} terms`);
-        } else {
-          console.warn("Glossary generation returned empty or invalid result");
-        }
-      } catch (err) {
-        console.warn("Glossary generation failed:", err);
-      }
+      const allTopicNames = validModules.flatMap(m => m.topics);
+      const glossaryData = await callGemini(apiKeys[0], buildGlossaryPrompt(courseName.trim(), allTopicNames)) || { terms: [] };
 
-      // Phase 4: Assemble with validation
-      setProgress("Assembling document...");
-      
-      // Validate that all topics have data
-      let missingTopics = 0;
-      validModules.forEach((m, mi) => {
-        m.topics.forEach((t, ti) => {
-          if (!topicDataMap[`${mi}-${ti}`]) {
-            console.warn(`Missing data for topic: ${t} in module: ${m.name}`);
-            missingTopics++;
-          }
-        });
-      });
-      
-      if (missingTopics > 0) {
-        showToast(`Warning: ${missingTopics} topic(s) failed to generate`);
-      }
-      
+      // Phase 4: Assemble
       const md = assembleMarkdown({ courseName: courseName.trim(), depth, modules: validModules, moduleMetas, topicDataMap, glossaryData });
       setOutput(md);
+      setTopicDataMapState(topicDataMap);
+      setModuleMetasState(moduleMetas);
+      setGlossaryDataState(glossaryData);
       
-      // Save to history
-      saveToHistory(courseName.trim(), validModules, md, {
-        depth,
-        fileCount: globalFiles.length,
-        useSemanticSearch,
-        useOCR,
-        speedMode,
-      });
+      saveToHistory(courseName.trim(), validModules, md, { depth, fileCount: globalFiles.length });
       updateHistoryStats();
       
-      // Cache the final document
-      if (documentHashes.length > 0) {
-        const cacheSettings = { useSemanticSearch, useOCR, preferSpeed: speedMode };
-        await cacheGeneratedDocument(courseName.trim(), validModules, documentHashes, md, depth, cacheSettings);
-        updateCacheStats();
-      }
-      
-      const successMsg = missingTopics > 0 
-        ? `Document generated with ${missingTopics} incomplete topic(s)` 
-        : "Document generated successfully";
-      showToast(successMsg);
-      setTimeout(() => outputRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
     } catch (err) {
       console.error(err);
-      showToast(err.message || "Generation failed");
+      showToast("Generation failed");
     } finally {
       setLoading(false); setProgress("");
     }
   };
 
-  const copyOutput = async () => { await navigator.clipboard.writeText(output); showToast("Copied to clipboard"); };
-  const downloadMd = () => {
-    const fn = slugify(courseName || "document") + "-master-learning-doc.md";
-    const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([output], { type: "text/markdown" }));
-    a.download = fn; a.click(); URL.revokeObjectURL(a.href); showToast("Downloaded " + fn);
+  // Export Handlers
+  const downloadAnki = () => {
+    const validModules = modules.map(m => ({ name: m.name, topics: m.topics.map(t => t.name) }));
+    const csv = generateAnkiCSV(courseName, validModules, topicDataMapState);
+    downloadFile(csv, slugify(courseName) + "-anki.csv", "text/csv");
   };
-  const downloadPdf = async () => {
-    // Show helpful message about PDF generation
-    const message = `PDF generation is currently disabled for deployment compatibility.
 
-Alternative options:
-1. Use browser Print-to-PDF (Ctrl+P or Cmd+P)
-2. Download markdown (.md) and convert locally
-3. Copy preview content to Word/Google Docs
-
-Would you like to download the markdown instead?`;
-
-    if (confirm(message)) {
-      downloadMd();
+  const handleUpgradeSuccess = async () => {
+    if (!user) return;
+    try {
+      const userRef = doc(db, "users", user.uid);
+      await updateDoc(userRef, { 
+        plan: 'premium', 
+        credits_remaining: 100, // Large amount for demo
+        last_active: new Date()
+      });
+      setShowUpgradeModal(false);
+      showToast("🚀 UPGRADED TO PREMIUM! Enjoy unlimited power.");
+    } catch (e) {
+      console.error(e);
+      showToast("Upgrade failed to sync");
     }
   };
 
-  const downloadAnki = () => {
-    const validModules = modules
-      .filter((m) => m.name.trim())
-      .map((m) => ({ name: m.name.trim(), topics: m.topics.filter((t) => t.name.trim()).map((t) => t.name.trim()) }))
-      .filter((m) => m.topics.length > 0);
-    
-    // Build topicDataMap from current output (simplified)
-    const topicDataMap = {}; // This would need to be stored in state for full functionality
-    
-    const csv = generateAnkiCSV(courseName, validModules, topicDataMap);
-    downloadFile(csv, slugify(courseName || "document") + "-anki-cards.csv", "text/csv");
-    showToast("Anki cards downloaded");
-  };
-
-  const downloadNotion = () => {
-    const validModules = modules
-      .filter((m) => m.name.trim())
-      .map((m) => ({ name: m.name.trim(), topics: m.topics.filter((t) => t.name.trim()).map((t) => t.name.trim()) }))
-      .filter((m) => m.topics.length > 0);
-    
-    const topicDataMap = {}; // This would need to be stored in state
-    const moduleMetas = [];
-    const glossaryData = { terms: [] };
-    
-    const md = generateNotionMarkdown(courseName, validModules, moduleMetas, topicDataMap, glossaryData);
-    downloadFile(md, slugify(courseName || "document") + "-notion.md", "text/markdown");
-    showToast("Notion markdown downloaded");
-  };
-
-  const downloadChecklist = () => {
-    const validModules = modules
-      .filter((m) => m.name.trim())
-      .map((m) => ({ name: m.name.trim(), topics: m.topics.filter((t) => t.name.trim()).map((t) => t.name.trim()) }))
-      .filter((m) => m.topics.length > 0);
-    
-    const topicDataMap = {};
-    
-    const md = generateStudyChecklist(courseName, validModules, topicDataMap);
-    downloadFile(md, slugify(courseName || "document") + "-checklist.md", "text/markdown");
-    showToast("Study checklist downloaded");
-  };
+  if (authLoading || !user) return <div className="auth-container"><Zap className="animate-spin" /></div>;
 
   return (
-    <>
-      <nav>
-        <div className="nav-inner">
-          <div className="logo">
-            <div className="logo-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="#D4AF37" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="5" /><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
-              </svg>
-            </div>
-            Eclipse Theory
-          </div>
-          <div className="nav-right">
-            <button className={`api-key-btn ${history.length > 0 ? "saved" : ""}`} onClick={() => setShowHistory(!showHistory)}>
-              <HistoryIcon /> {history.length > 0 ? `${history.length} Doc${history.length > 1 ? "s" : ""}` : "History"}
-            </button>
-            <button className={`api-key-btn ${apiKeys.length > 0 ? "saved" : ""}`} onClick={() => setShowKeyInput(!showKeyInput)}>
-              <KeyIcon /> {apiKeys.length > 0 ? `${apiKeys.length} Key${apiKeys.length > 1 ? "s" : ""}` : "API Keys"}
-            </button>
-            {keyMode === "two-stage-optimal" && (
-              <span className="nav-tag" style={{ background: "rgba(34, 197, 94, 0.08)", borderColor: "rgba(34, 197, 94, 0.2)", color: "#16a34a" }}>
-                Optimal
-              </span>
-            )}
-            {keyMode === "two-stage-fast" && (
-              <span className="nav-tag" style={{ background: "rgba(59, 130, 246, 0.08)", borderColor: "rgba(59, 130, 246, 0.2)", color: "#2563eb" }}>
-                Fast Mode
-              </span>
-            )}
-          </div>
-        </div>
-        {showKeyInput && (
-          <div className="api-key-panel">
-            <div className="api-key-panel-inner">
-              <label>Add API Key <span className="hint">— supports multiple free providers</span></label>
-              <div className="api-key-row">
-                <select style={{ width: 150, flexShrink: 0, height: 38, fontSize: 13, cursor: "pointer" }} value={newProvider} onChange={(e) => setNewProvider(e.target.value)}>
-                  {PROVIDER_LIST.map((p) => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
-                </select>
-                <input type="password" placeholder={PROVIDER_LIST.find((p) => p.id === newProvider)?.placeholder || "API key..."} value={newKey} onChange={(e) => setNewKey(e.target.value)} autoComplete="off" />
-                <button 
-                  className="btn-test-key" 
-                  onClick={testKey}
-                  disabled={testingKey || !newKey.trim()}
-                  style={{ opacity: testingKey || !newKey.trim() ? 0.5 : 1 }}
-                >
-                  {testingKey ? "Testing..." : "Test"}
-                </button>
-                <button className="btn-save-key" onClick={addApiKey}>Add</button>
-              </div>
-              <p className="api-key-hint">
-                Get key: <a href={PROVIDER_LIST.find((p) => p.id === newProvider)?.keyUrl} target="_blank" rel="noopener noreferrer">
-                  {PROVIDER_LIST.find((p) => p.id === newProvider)?.keyUrl?.replace("https://", "")}
-                </a>
-                {" — "}{PROVIDER_LIST.find((p) => p.id === newProvider)?.note}
-              </p>
-              {keyMode !== "none" && (
-                <div style={{ marginTop: 12, padding: "10px 12px", background: keyMode.includes("optimal") ? "rgba(34, 197, 94, 0.06)" : keyMode.includes("fast") ? "rgba(59, 130, 246, 0.06)" : "rgba(234, 179, 8, 0.06)", border: `1px solid ${keyMode.includes("optimal") ? "rgba(34, 197, 94, 0.2)" : keyMode.includes("fast") ? "rgba(59, 130, 246, 0.2)" : "rgba(234, 179, 8, 0.2)"}`, borderRadius: 6, fontSize: 12, color: "var(--text-muted)" }}>
-                  <strong style={{ color: keyMode.includes("optimal") ? "#16a34a" : keyMode.includes("fast") ? "#2563eb" : "#ca8a04" }}>
-                    {keyMode === "two-stage-optimal" && "✓ Optimal Setup"}
-                    {keyMode === "two-stage-fast" && "⚡ Fast Mode"}
-                    {keyMode === "two-stage-hybrid" && "⚡ Hybrid Mode"}
-                    {keyMode === "gemini-only" && "⚠ Gemini Only"}
-                    {keyMode === "openrouter-only" && "⚠ OpenRouter Only"}
-                    {keyMode === "groq-only" && "⚡ Groq Only"}
-                  </strong>
-                  <br />
-                  {getKeyStats(apiKeys).description}
-                </div>
-              )}
-              {apiKeys.length > 0 && (
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10, paddingTop: 10, borderTop: "1px dashed var(--border)" }}>
-                  {apiKeys.map((k, i) => {
-                    const prov = PROVIDER_LIST.find((p) => p.id === k.providerId);
-                    return (
-                      <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, background: "var(--bg-input)", border: "1px solid var(--border)", borderRadius: 6, padding: "4px 6px 4px 8px", fontSize: 11 }}>
-                        <span style={{ fontWeight: 600, color: "var(--accent)", fontSize: 10 }}>{prov?.name || k.providerId}</span>
-                        <span style={{ color: "var(--text-dim)", fontFamily: "monospace", fontSize: 10 }}>...{k.key.slice(-6)}</span>
-                        <button className="btn-remove" style={{ padding: 2 }} onClick={() => removeApiKey(i)}><XIcon /></button>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-              {cacheStats.totalSizeMB > 0 && (
-                <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px dashed var(--border)" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                    <span style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 600 }}>
-                      Cache: {cacheStats.totalSizeMB} MB ({cacheStats.percentUsed}% used)
-                    </span>
-                    <button
-                      onClick={() => { clearAllCaches(); updateCacheStats(); showToast("Cache cleared"); }}
-                      style={{ fontSize: 10, padding: "3px 8px", background: "none", border: "1px solid var(--border)", borderRadius: 4, color: "var(--text-dim)", cursor: "pointer" }}
-                    >
-                      Clear Cache
-                    </button>
-                  </div>
-                  <div style={{ fontSize: 10, color: "var(--text-dim)" }}>
-                    {cacheStats.counts.chunks > 0 && `${cacheStats.counts.chunks} documents, `}
-                    {cacheStats.counts.analysis > 0 && `${cacheStats.counts.analysis} analyses, `}
-                    {cacheStats.counts.document > 0 && `${cacheStats.counts.document} full docs`}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-        {showHistory && (
-          <div className="api-key-panel">
-            <div className="api-key-panel-inner">
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                <label>Document History <span className="hint">— {historyStats.totalDocuments} document{historyStats.totalDocuments !== 1 ? "s" : ""}, {historyStats.totalTopics} topics</span></label>
-                {history.length > 0 && (
-                  <button
-                    onClick={clearAllHistory}
-                    style={{ fontSize: 10, padding: "3px 8px", background: "none", border: "1px solid var(--border)", borderRadius: 4, color: "var(--text-dim)", cursor: "pointer" }}
-                  >
-                    Clear All
-                  </button>
-                )}
-              </div>
-              {history.length === 0 ? (
-                <div style={{ padding: "40px 20px", textAlign: "center", color: "var(--text-muted)", fontSize: 13 }}>
-                  <HistoryIcon />
-                  <p style={{ marginTop: 8 }}>No documents generated yet</p>
-                  <p style={{ fontSize: 11, color: "var(--text-dim)" }}>Your generated documents will appear here</p>
-                </div>
-              ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 400, overflowY: "auto" }}>
-                  {history.map((item) => (
-                    <div
-                      key={item.id}
-                      onClick={() => loadHistoryItem(item)}
-                      style={{
-                        padding: "12px",
-                        background: "var(--bg-input)",
-                        border: "1px solid var(--border)",
-                        borderRadius: 6,
-                        cursor: "pointer",
-                        transition: "all 0.15s ease",
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.borderColor = "var(--accent)";
-                        e.currentTarget.style.background = "var(--bg-hover)";
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.borderColor = "var(--border)";
-                        e.currentTarget.style.background = "var(--bg-input)";
-                      }}
-                    >
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", marginBottom: 6 }}>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontWeight: 600, fontSize: 13, color: "var(--text)", marginBottom: 4 }}>
-                            {item.courseName}
-                          </div>
-                          <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
-                            {item.moduleCount} module{item.moduleCount !== 1 ? "s" : ""} · {item.topicCount} topic{item.topicCount !== 1 ? "s" : ""}
-                            {item.fileCount > 0 && ` · ${item.fileCount} file${item.fileCount !== 1 ? "s" : ""}`}
-                          </div>
-                        </div>
-                        <button
-                          onClick={(e) => deleteHistory(item.id, e)}
-                          style={{
-                            padding: 4,
-                            background: "none",
-                            border: "none",
-                            cursor: "pointer",
-                            color: "var(--text-dim)",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                          }}
-                          onMouseEnter={(e) => {
-                            e.currentTarget.style.color = "#ef4444";
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.color = "var(--text-dim)";
-                          }}
-                        >
-                          <TrashIcon />
-                        </button>
-                      </div>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 10, color: "var(--text-dim)" }}>
-                        <span>{formatHistoryDate(item.timestamp)}</span>
-                        <span>{formatHistorySize(item.output)} · {item.depth}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {historyStats.totalSizeMB > 0 && (
-                <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px dashed var(--border)", fontSize: 10, color: "var(--text-dim)", textAlign: "center" }}>
-                  Total storage: {historyStats.totalSizeMB} MB
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-      </nav>
+    <div className="landing-page">
+      {/* ... nav */}
+      <DashboardNavbar 
+        user={user} 
+        userData={userData} 
+        historyCount={history.length} 
+        apiKeyCount={apiKeys.length} 
+        keyMode={getKeyStats(apiKeys).mode}
+        onToggleHistory={() => setShowHistory(!showHistory)}
+        onToggleKeys={() => setShowKeyInput(!showKeyInput)}
+        onLogout={logout}
+      />
 
-      <section className="hero">
+      {showKeyInput && (
+        <APIKeyPanel 
+          apiKeys={apiKeys} 
+          onAddKey={handleAddKey} 
+          onRemoveKey={handleRemoveKey}
+          keyMode={getKeyStats(apiKeys).mode}
+          cacheStats={cacheStats}
+          onClearCache={() => { clearAllCaches(); updateCacheStats(); }}
+          showToast={showToast}
+        />
+      )}
+
+      {showHistory && (
+        <HistoryPanel 
+          history={history} 
+          historyStats={historyStats} 
+          onLoadItem={(item) => { setOutput(item.output); setCourseName(item.courseName); setShowHistory(false); }}
+          onDeleteItem={(id) => { deleteHistoryItem(id); updateHistoryStats(); }}
+          onClearAll={() => { clearHistory(); updateHistoryStats(); }}
+        />
+      )}
+
+      {showUpgradeModal && (
+        <UpgradeModal 
+          user={user} 
+          onClose={() => setShowUpgradeModal(false)} 
+          onUpgrade={handleUpgradeSuccess} 
+        />
+      )}
+
+      <div className="hero" style={{ padding: '80px 24px 40px' }}>
         <h1>Generate <span className="highlight">Master Learning</span> Documents</h1>
-        <p>Upload your class notes, define modules and topics — AI reads your material and generates a complete study document.</p>
-        <div className="hero-pills">
-          <span className="pill"><span className="pill-dot" /> Two-stage AI</span>
-          <span className="pill"><span className="pill-dot" /> Upload notes</span>
-          <span className="pill"><span className="pill-dot" /> Smart analysis</span>
-          <span className="pill"><span className="pill-dot" /> PDF export</span>
+        <p>Your SaaS Intelligence Engine for deep learning.</p>
+        
+        {userData?.plan === 'free' && (
+          <button 
+            onClick={() => setShowUpgradeModal(true)}
+            className="btn-save-key" 
+            style={{ marginTop: 20, padding: '12px 24px', fontSize: 14, background: 'linear-gradient(to right, #D4AF37, #F9D976)', color: '#000', border: 'none' }}
+          >
+            <Sparkles size={16} style={{ marginRight: 8, display: 'inline-block', verticalAlign: 'middle' }} />
+            UPGRADE TO PREMIUM
+          </button>
+        )}
+        
+        {/* Referral Card */}
+        <div style={{ maxWidth: 500, margin: '20px auto', background: 'rgba(212, 175, 55, 0.05)', border: '1px solid var(--accent)', padding: 16, borderRadius: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
+          <Share2 size={20} color="var(--accent)" />
+          <div style={{ flex: 1, textAlign: 'left' }}>
+            <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--accent)' }}>REFER FRIENDS, EARN CREDITS</div>
+            <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>Share your link: <code>{window?.location?.origin}/signup?ref={userData?.referral_code}</code></div>
+          </div>
+          <button className="btn-save-key" style={{ padding: '6px 12px', fontSize: 11 }} onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/signup?ref=${userData.referral_code}`); showToast("Referral link copied!"); }}>Copy Link</button>
         </div>
-      </section>
+      </div>
 
       <section className="form-section">
         <div className="card">
-          <div className="card-header">
-            <h2>Configure Document</h2>
-            <span className="step-tag">Input</span>
-          </div>
-          <form onSubmit={handleSubmit} noValidate>
+          <form onSubmit={handleSubmit}>
             <div className="row">
               <div className="field">
-                <label htmlFor="courseName">Course Name <span className="required">*</span></label>
-                <input type="text" id="courseName" placeholder="e.g. Data Structures & Algorithms" value={courseName} onChange={(e) => setCourseName(e.target.value)} required />
+                <label>Course Name</label>
+                <input type="text" value={courseName} onChange={e => setCourseName(e.target.value)} placeholder="e.g. Quantum Physics" />
               </div>
               <div className="field">
-                <label htmlFor="targetDepth">Detail Level</label>
-                <select id="targetDepth" value={depth} onChange={(e) => setDepth(e.target.value)}>
-                  <option value="brief">Brief — 300 words/topic</option>
-                  <option value="detailed">Detailed — 500-800 words/topic</option>
+                <label>Detail Level</label>
+                <select value={depth} onChange={e => setDepth(e.target.value)}>
+                  <option value="brief">Brief</option>
+                  <option value="detailed">Detailed</option>
                 </select>
               </div>
             </div>
 
-            {/* Speed Mode Toggle */}
-            {apiKeys.some((k) => k.providerId === "groq") && (
-              <div className="field">
-                <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", userSelect: "none" }}>
-                  <input
-                    type="checkbox"
-                    checked={speedMode}
-                    onChange={(e) => setSpeedMode(e.target.checked)}
-                    style={{ width: 16, height: 16, cursor: "pointer" }}
-                  />
-                  <span>Speed Mode <span className="hint">— Use Groq for 3x faster generation (30 RPM)</span></span>
-                </label>
-              </div>
-            )}
-
-            {/* Semantic Search Toggle */}
             <div className="field">
-              <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", userSelect: "none" }}>
-                <input
-                  type="checkbox"
-                  checked={useSemanticSearch}
-                  onChange={(e) => setUseSemanticSearch(e.target.checked)}
-                  style={{ width: 16, height: 16, cursor: "pointer" }}
-                />
-                <span>Semantic Search <span className="hint">— AI-powered relevance matching (recommended, ~25MB model)</span></span>
-              </label>
-            </div>
-
-            {/* OCR Toggle */}
-            <div className="field">
-              <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", userSelect: "none" }}>
-                <input
-                  type="checkbox"
-                  checked={useOCR}
-                  onChange={(e) => setUseOCR(e.target.checked)}
-                  style={{ width: 16, height: 16, cursor: "pointer" }}
-                />
-                <span>OCR for Images <span className="hint">— Extract text from scanned documents (slower)</span></span>
-              </label>
-            </div>
-
-            {/* GLOBAL FILE UPLOAD */}
-            <div className="field">
-              <label>
-                Reference Material <span className="hint">— upload class notes, slides, PDFs, images (optional)</span>
-                {globalFiles.length > 0 && <span style={{ marginLeft: 8, color: 'var(--accent)', fontSize: 12 }}>({globalFiles.length} file{globalFiles.length > 1 ? 's' : ''})</span>}
-              </label>
-              <div
-                className={`upload-zone ${dragOver ? "drag-over" : ""} ${globalFiles.length > 0 ? "has-files" : ""}`}
-                onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-                onDragLeave={() => setDragOver(false)}
-                onDrop={handleDrop}
-                onClick={() => fileInputRef.current?.click()}
-                role="button"
-                tabIndex={0}
-                aria-label="Upload reference files"
-                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") fileInputRef.current?.click(); }}
-              >
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  multiple
-                  accept="*/*"
-                  style={{ display: "none" }}
-                  onChange={(e) => { handleGlobalFiles(e.target.files); e.target.value = ""; }}
-                />
-                {(() => {
-                  const hasFiles = globalFiles && globalFiles.length > 0;
-                  
-                  if (!hasFiles) {
-                    return (
-                      <div className="upload-zone-empty">
-                        <UploadIcon size={20} />
-                        <span>Drop files here or click to browse</span>
-                        <span className="upload-zone-hint">PDF, PPT, DOC, images, text files</span>
-                      </div>
-                    );
-                  }
-                  
-                  return (
-                    <div className="upload-zone-files" onClick={(e) => e.stopPropagation()}>
-                      <div className="upload-zone-header">
-                        <span className="upload-zone-count">{globalFiles.length} file{globalFiles.length > 1 ? "s" : ""} uploaded</span>
-                        <label className="btn-add-more" onClick={(e) => e.stopPropagation()}>
-                          <PlusIcon /> Add more
-                          <input
-                            type="file"
-                            multiple
-                            accept="*/*"
-                            style={{ display: "none" }}
-                            onChange={(e) => { handleGlobalFiles(e.target.files); e.target.value = ""; }}
-                          />
-                        </label>
-                      </div>
-                      <div className="file-list">
-                        {globalFiles.map((file, fi) => (
-                          <div className="file-chip" key={fi}>
-                            <span className="file-type-badge">{getFileIcon(file)}</span>
-                            <span className="file-name">{file.name}</span>
-                            <span className="file-size">{formatFileSize(file.size)}</span>
-                            <button type="button" className="file-remove" onClick={(e) => { e.stopPropagation(); removeGlobalFile(fi); }} aria-label={`Remove ${file.name}`}><XIcon /></button>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })()}
+              <label>Reference Material</label>
+              <div className="upload-zone" onClick={() => fileInputRef.current.click()}>
+                <input type="file" ref={fileInputRef} multiple style={{ display: 'none' }} onChange={e => handleGlobalFiles(e.target.files)} />
+                <Upload size={20} />
+                <span>{globalFiles.length > 0 ? `${globalFiles.length} files uploaded` : "Drop files here or browse"}</span>
               </div>
             </div>
 
             <div className="field">
-              <label>Modules & Topics <span className="required">*</span><span className="hint">AI will match your uploaded notes to each module automatically</span></label>
+              <label>Modules & Topics</label>
               <div className="modules-wrap">
-                {modules.length === 0 && <div className="empty-state">No modules yet. Click below to add one.</div>}
-                {modules.map((mod, mi) => (
-                  <div className="module-block" key={mod.id}>
-                    <div className="module-head">
-                      <div className="module-head-left">
-                        <span className="module-num">{mi + 1}</span>
-                        <input type="text" placeholder="Module name..." aria-label="Module name" value={mod.name} onChange={(e) => updateModuleName(mod.id, e.target.value)} />
-                      </div>
-                      <button type="button" className="btn-remove-module" onClick={() => removeModule(mod.id)}><XIcon /> Remove</button>
-                    </div>
-                    <div className="module-body">
-                      <div className="topics-list">
-                        {mod.topics.map((topic, ti) => (
-                          <div className="topic-row" key={topic.id}>
-                            <span className="topic-num">{mi + 1}.{ti + 1}</span>
-                            <input type="text" placeholder="Topic name..." aria-label="Topic name" value={topic.name} onChange={(e) => updateTopicName(mod.id, topic.id, e.target.value)} />
-                            <button type="button" className="btn-remove" onClick={() => removeTopic(mod.id, topic.id)}><XIcon /></button>
-                          </div>
-                        ))}
-                      </div>
-                      <div className="module-actions">
-                        <button type="button" className="btn-add" onClick={() => addTopic(mod.id)}><PlusIcon /> Add Topic</button>
-                      </div>
-                    </div>
-                  </div>
+                {modules.map((m, mi) => (
+                  <ModuleBlock 
+                    key={m.id} 
+                    mod={m} 
+                    mi={mi} 
+                    onUpdateName={updateModuleName} 
+                    onRemove={removeModule}
+                    onAddTopic={addTopic}
+                    onRemoveTopic={removeTopic}
+                    onUpdateTopicName={updateTopicName}
+                  />
                 ))}
               </div>
-              <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
-                <button type="button" className="btn-add" onClick={addModule}><PlusIcon /> Add Module</button>
-                <button type="button" className="btn-add" onClick={() => setShowImportModal(true)} style={{ background: "var(--accent)", color: "white" }}>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                    <polyline points="7 10 12 15 17 10" />
-                    <line x1="12" y1="15" x2="12" y2="3" />
-                  </svg>
-                  Import from Text
-                </button>
-              </div>
+              <button type="button" className="btn-add" onClick={addModule}><Plus size={14} /> Add Module</button>
             </div>
+
             <button type="submit" className="btn-generate" disabled={loading}>
-              {loading ? <><span className="spinner" /> {progress || "Generating..."}</> : "Generate Document"}
+              {loading ? progress || "Generating..." : "Generate Master Document"}
             </button>
           </form>
         </div>
       </section>
 
-      {/* Import Modal */}
-      {showImportModal && (
-        <div className="modal-overlay" onClick={handleCancelImport}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3>Import Course Structure</h3>
-              <button className="modal-close" onClick={handleCancelImport}>
-                <XIcon />
-              </button>
-            </div>
-            
-            {!extractedModules ? (
-              <>
-                <div className="modal-body">
-                  <p style={{ marginBottom: 12, color: "var(--text-muted)", fontSize: 14 }}>
-                    Paste your course syllabus, table of contents, or outline below. AI will extract modules and topics automatically.
-                  </p>
-                  <textarea
-                    value={importText}
-                    onChange={(e) => setImportText(e.target.value)}
-                    placeholder="Example:&#10;&#10;Module 1: Data Structures&#10;- Arrays and Strings&#10;- Linked Lists&#10;- Stacks and Queues&#10;&#10;Module 2: Algorithms&#10;- Sorting (Bubble, Quick, Merge)&#10;- Searching (Binary Search)"
-                    style={{
-                      width: "100%",
-                      minHeight: 300,
-                      padding: 12,
-                      border: "1px solid var(--border)",
-                      borderRadius: 6,
-                      fontSize: 13,
-                      fontFamily: "monospace",
-                      resize: "vertical",
-                    }}
-                  />
-                  {extractionError && (
-                    <div style={{ marginTop: 12, padding: 12, background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 6, color: "#dc2626", fontSize: 13 }}>
-                      {extractionError}
-                    </div>
-                  )}
-                </div>
-                <div className="modal-footer">
-                  <button className="btn-ghost" onClick={handleCancelImport}>Cancel</button>
-                  <button 
-                    className="btn-pdf" 
-                    onClick={handleExtractTopics}
-                    disabled={extracting || !importText.trim()}
-                  >
-                    {extracting ? "Extracting..." : "Extract Topics"}
-                  </button>
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="modal-body">
-                  <p style={{ marginBottom: 16, color: "var(--text-muted)", fontSize: 14 }}>
-                    Review the extracted structure below. Click "Confirm" to import or "Back" to edit the text.
-                  </p>
-                  <div style={{ maxHeight: 400, overflowY: "auto", border: "1px solid var(--border)", borderRadius: 6, padding: 16, background: "var(--bg-subtle)" }}>
-                    {extractedModules.map((module, mi) => (
-                      <div key={mi} style={{ marginBottom: 20 }}>
-                        <div style={{ fontWeight: 600, fontSize: 14, color: "var(--text)", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
-                          <span style={{ background: "var(--accent)", color: "white", width: 24, height: 24, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12 }}>
-                            {mi + 1}
-                          </span>
-                          {module.name}
-                        </div>
-                        <ul style={{ margin: 0, paddingLeft: 40, listStyle: "disc" }}>
-                          {module.topics.map((topic, ti) => (
-                            <li key={ti} style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 4 }}>
-                              {topic}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    ))}
-                  </div>
-                  <div style={{ marginTop: 12, padding: 12, background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 6, fontSize: 13, color: "#16a34a" }}>
-                    ✓ Found {extractedModules.length} module{extractedModules.length !== 1 ? "s" : ""} with {extractedModules.reduce((sum, m) => sum + m.topics.length, 0)} topic{extractedModules.reduce((sum, m) => sum + m.topics.length, 0) !== 1 ? "s" : ""}
-                  </div>
-                </div>
-                <div className="modal-footer">
-                  <button className="btn-ghost" onClick={() => setExtractedModules(null)}>Back</button>
-                  <button className="btn-pdf" onClick={handleConfirmImport}>
-                    Confirm & Import
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      )}
-
       {output && (
         <section className="output-section visible" ref={outputRef}>
           <div className="output-card">
             <div className="output-bar">
-              <h2>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" />
-                </svg>
-                Generated Document
-              </h2>
+              <h2>Document Preview</h2>
               <div className="output-bar-actions">
-                <div className="preview-toggle">
-                  <button
-                    className={previewMode === "preview" ? "active" : ""}
-                    onClick={() => setPreviewMode("preview")}
-                  >
-                    Preview
-                  </button>
-                  <button
-                    className={previewMode === "markdown" ? "active" : ""}
-                    onClick={() => setPreviewMode("markdown")}
-                  >
-                    Markdown
-                  </button>
-                </div>
-                <button className="btn-ghost" onClick={copyOutput}>Copy</button>
-                <button className="btn-ghost" onClick={downloadMd}>Download .md</button>
-                <button className="btn-ghost" onClick={downloadChecklist}>Checklist</button>
-                <button className="btn-pdf" onClick={downloadPdf}>PDF</button>
+                <button className="btn-ghost" onClick={() => setPreviewMode(previewMode === 'preview' ? 'markdown' : 'preview')}>{previewMode === 'preview' ? 'Markdown' : 'Preview'}</button>
+                <button className="btn-ghost" onClick={downloadAnki}>Anki Cards</button>
+                <button className="btn-pdf">Export PDF</button>
               </div>
             </div>
-            {previewMode === "preview" ? (
-              <div style={{ background: "#f5f5f5", minHeight: "600px", overflow: "auto" }}>
-                <MarkdownPreview markdown={output} />
-              </div>
-            ) : (
-              <div className="output-content">{output}</div>
-            )}
+            <div className="output-content">
+              {previewMode === 'preview' ? <MarkdownPreview markdown={output} /> : <pre>{output}</pre>}
+            </div>
           </div>
         </section>
       )}
 
-      <div className={`toast ${toast ? "show" : ""}`} role="status" aria-live="polite">{toast}</div>
-      <footer>Eclipse Theory — Built for learners who take notes seriously.</footer>
-    </>
+      <div className={`toast ${toast ? "show" : ""}`}>{toast}</div>
+    </div>
   );
 }

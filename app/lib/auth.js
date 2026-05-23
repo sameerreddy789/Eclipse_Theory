@@ -6,6 +6,9 @@ import {
   signInWithEmailAndPassword, 
   createUserWithEmailAndPassword, 
   signOut,
+  sendPasswordResetEmail,
+  GoogleAuthProvider,
+  signInWithPopup,
   User 
 } from "firebase/auth";
 import { doc, getDoc, setDoc, onSnapshot } from "firebase/firestore";
@@ -69,10 +72,17 @@ export const AuthProvider = ({ children }) => {
 
     await setDoc(doc(db, "users", uid), newUser);
 
-    // If referred, handle referral reward (simplified - should be on backend for security)
+    // Handle referral reward securely via API
     if (referralCode) {
-      // In production, use a Cloud Function to securely increment referrer's credits
-      // and log the referral event.
+      try {
+        await fetch("/api/referral/redeem", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ referralCode, newUserId: uid })
+        });
+      } catch (err) {
+        console.error("Referral award failed:", err);
+      }
     }
 
     return res;
@@ -80,9 +90,39 @@ export const AuthProvider = ({ children }) => {
 
   const login = (email, password) => signInWithEmailAndPassword(auth, email, password);
   const logout = () => signOut(auth);
+  const resetPassword = (email) => sendPasswordResetEmail(auth, email);
+
+  const loginWithGoogle = async () => {
+    const provider = new GoogleAuthProvider();
+    const res = await signInWithPopup(auth, provider);
+    const user = res.user;
+    
+    // Check if user doc exists
+    const userDocRef = doc(db, "users", user.uid);
+    const userDoc = await getDoc(userDocRef);
+    
+    if (!userDoc.exists()) {
+      // Initialize new user
+      const newUser = {
+        uid: user.uid,
+        email: user.email,
+        display_name: user.displayName,
+        plan: 'free',
+        credits_remaining: 3,
+        generations_total: 0,
+        referral_code: nanoid(6).toUpperCase(),
+        referred_by: null,
+        created_at: new Date(),
+        last_active: new Date(),
+        abuse_score: 0
+      };
+      await setDoc(userDocRef, newUser);
+    }
+    return res;
+  };
 
   return (
-    <AuthContext.Provider value={{ user, userData, loading, login, signup, logout }}>
+    <AuthContext.Provider value={{ user, userData, loading, login, signup, logout, resetPassword, loginWithGoogle }}>
       {children}
     </AuthContext.Provider>
   );
