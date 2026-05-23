@@ -38,7 +38,7 @@ export default function LoginPage() {
       router.push("/dashboard");
     } catch (err) {
       console.error(err);
-      setError("Google sign-in failed. Please try again.");
+      setError(err.code || err.message || "Google sign-in failed.");
     } finally {
       setLoading(false);
     }
@@ -52,7 +52,7 @@ export default function LoginPage() {
       await login(email, password);
       router.push("/dashboard");
     } catch (err) {
-      setError("Invalid email or password. Please try again.");
+      setError(err.code || err.message || "Invalid email or password.");
       console.error(err);
     } finally {
       setLoading(false);

@@ -30,7 +30,8 @@ function SignupForm() {
       router.push("/dashboard");
     } catch (err) {
       console.error(err);
-      setError("Google signup failed. Please try again.");
+      // Display the actual error code or message for debugging
+      setError(err.code || err.message || "Google signup failed.");
     } finally {
       setLoading(false);
     }
@@ -44,8 +45,8 @@ function SignupForm() {
       await signup(email, password, referral);
       router.push("/dashboard");
     } catch (err) {
-      setError("Failed to create account. Email might already be in use.");
       console.error(err);
+      setError(err.code || err.message || "Failed to create account.");
     } finally {
       setLoading(false);
     }

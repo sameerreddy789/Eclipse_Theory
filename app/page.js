@@ -166,27 +166,20 @@ export default function LandingPage() {
 
         <div className="testimonial-track">
           {[
-            { name: "Arjun Reddy", role: "Medical Student", text: "Turned 500 pages of anatomy notes into a 20-page master guide. A game changer." },
-            { name: "Sarah J.", role: "Full-stack Dev", text: "The Mermaid diagram generation is scarily accurate. Worth every penny." },
-            { name: "Dr. James Miller", role: "Researcher", text: "The semantic search is a paradigm shift for literature reviews." },
-            { name: "Elena V.", role: "Law Student", text: "Legal case synthesis used to take me days. Now it's a matter of minutes." },
-            { name: "Mark Thompson", role: "CS Student", text: "OCR is flawless even with my terrible handwriting. 10/10." },
-            { name: "Aisha Khan", role: "Biology Major", text: "Finally an AI that doesn't hallucinate technical diagrams." },
-            { name: "Prof. Robert Chen", role: "Educator", text: "I recommend this to all my students for structured exam prep." },
-            { name: "Linda G.", role: "UX Designer", text: "The UI is clean and the gold theme feels truly premium." },
-            { name: "Kevin S.", role: "Data Scientist", text: "Vector synthesis at its finest. The chunking logic is perfect." },
-            { name: "Maria Garcia", role: "Philosophy Student", text: "It captures the essence of complex arguments beautifully." },
-            // Loop Duplicates
-            { name: "Arjun Reddy", role: "Medical Student", text: "Turned 500 pages of anatomy notes into a 20-page master guide. A game changer." },
-            { name: "Sarah J.", role: "Full-stack Dev", text: "The Mermaid diagram generation is scarily accurate. Worth every penny." },
-            { name: "Dr. James Miller", role: "Researcher", text: "The semantic search is a paradigm shift for literature reviews." },
-            { name: "Elena V.", role: "Law Student", text: "Legal case synthesis used to take me days. Now it's a matter of minutes." },
-            { name: "Mark Thompson", role: "CS Student", text: "OCR is flawless even with my terrible handwriting. 10/10." },
-            { name: "Aisha Khan", role: "Biology Major", text: "Finally an AI that doesn't hallucinate technical diagrams." },
-            { name: "Prof. Robert Chen", role: "Educator", text: "I recommend this to all my students for structured exam prep." },
-            { name: "Linda G.", role: "UX Designer", text: "The UI is clean and the gold theme feels truly premium." },
-            { name: "Kevin S.", role: "Data Scientist", text: "Vector synthesis at its finest. The chunking logic is perfect." },
-            { name: "Maria Garcia", role: "Philosophy Student", text: "It captures the essence of complex arguments beautifully." }
+            { name: "Arjun Reddy", role: "Medical Student", text: "Turned 500 pages of anatomy notes into a 20-page master guide. Lifecycle saver." },
+            { name: "Sarah Jenkins", role: "Full-stack Developer", text: "The Mermaid diagram generation is scarily accurate. Worth every penny." },
+            { name: "Dr. Elena Rossi", role: "Research Fellow", text: "Finally an AI that understands technical context. The vector synthesis is brilliant." },
+            { name: "James Chen", role: "MBA Candidate", text: "I use it for case study synthesis. What used to take hours now takes seconds." },
+            { name: "Priya Sharma", role: "Law Student", text: "The OCR handled my messy lecture notes perfectly. Simply the best study tool." },
+            { name: "Mark Thompson", role: "PhD Student", text: "The semantic search is a paradigm shift for literature reviews. Invaluable." },
+            { name: "Aisha Khan", role: "Bio-Tech Student", text: "Detailed mode captures every nuance. The code samples are actually runnable." },
+            { name: "Robert Duong", role: "Software Architect", text: "Excellent documentation engine. The Anki-ready output saves me weeks." },
+            { name: "Linda Moore", role: "History Student", text: "Eclipse Theory found connections in my research I had completely missed." },
+            { name: "Kevin Zhang", role: "Engineering Lead", text: "High-fidelity PDF output that actually looks professional. 10/10." },
+            // Repeat for smooth loop
+            { name: "Arjun Reddy", role: "Medical Student", text: "Turned 500 pages of anatomy notes into a 20-page master guide. Lifecycle saver." },
+            { name: "Sarah Jenkins", role: "Full-stack Developer", text: "The Mermaid diagram generation is scarily accurate. Worth every penny." },
+            { name: "Dr. Elena Rossi", role: "Research Fellow", text: "Finally an AI that understands technical context. The vector synthesis is brilliant." }
           ].map((t, i) => (
             <div key={i} style={{ width: '330px', flexShrink: 0, padding: '30px', background: 'var(--bg-subtle)', borderRadius: '20px', border: '1px solid var(--border)', boxShadow: '0 10px 30px rgba(0,0,0,0.1)' }}>
               <div style={{ display: 'flex', gap: 4, marginBottom: '16px' }}>

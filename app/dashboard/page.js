@@ -7,7 +7,7 @@ import { deductCredit } from "../lib/credits";
 import "../globals.css";
 
 // Libs
-import { callGemini, buildModulePrompt, buildGlossaryPrompt } from "../lib/ai/gemini";
+import { callGemini, buildModulePrompt, buildGlossaryPrompt, PROVIDER_LIST, getKeyStats } from "../lib/ai/gemini";
 import { slugify, assembleMarkdown } from "../lib/content/markdown";
 import { processFiles } from "../lib/files";
 import { chunkDocuments, findRelevantChunks, generateChunkEmbeddings } from "../lib/content/chunking";
@@ -35,6 +35,7 @@ import {
 } from "../lib/storage/history";
 import { db } from "../lib/firebase";
 import { doc, updateDoc } from "firebase/firestore";
+import { trackEvent } from "../lib/analytics";
 
 // Components
 import MarkdownPreview from "../components/MarkdownPreview";
@@ -134,7 +135,7 @@ export default function DashboardPage() {
       .map(m => ({ name: m.name.trim(), topics: m.topics.filter(t => t.name.trim()).map(t => t.name.trim()) }))
       .filter(m => m.topics.length > 0);
 
-    if (!validModules.length) { showToast("Add module & topics"); return; }
+    if (!validModules.length) { showToast("Add at least one module"); return; }
 
     setLoading(true); setOutput(""); setTopicDataMapState({});
     
@@ -148,11 +149,11 @@ export default function DashboardPage() {
 
       if (!gateRes.ok) {
         const err = await gateRes.json();
-        showToast(err.error || "Gate closed");
+        showToast(err.error || "Authorization failed");
         setLoading(false); return;
       }
 
-      // Generation Logic
+      // Phase 0: Process and chunk all global files (with caching)
       let documentChunks = [];
       let documentHashes = [];
       let globalImages = [];
@@ -162,6 +163,7 @@ export default function DashboardPage() {
         const filesToProcess = [];
         for (const file of globalFiles) {
           if (useOCR && isImageFile(file)) {
+            setProgress(`Running OCR on ${file.name}...`);
             const ocrResult = await extractTextFromImage(file, (p) => setProgress(`OCR: ${file.name} (${p}%)`));
             if (ocrResult.success && ocrResult.text.length > 50) {
               filesToProcess.push({ ...file, ocrText: ocrResult.text });
@@ -189,10 +191,12 @@ export default function DashboardPage() {
         }
         
         if (useSemanticSearch && documentChunks.length > 0) {
+          setProgress(`Syncing vector space...`);
           documentChunks = await generateChunkEmbeddings(documentChunks, (c, t) => setProgress(`Syncing... ${c}/${t}`));
         }
       }
 
+      // Phase 1: Module metadata
       setProgress(`Architecting Knowledge...`);
       const analyzerKey = "system";
       const moduleMetas = [];
@@ -202,33 +206,44 @@ export default function DashboardPage() {
         const context = relevantChunks.map(c => `[${c.metadata.fileName}]\n${c.text}`).join("\n\n");
         const meta = await callGemini(analyzerKey, buildModulePrompt(m.name, m.topics, courseName.trim(), context), globalImages);
         moduleMetas.push(meta || { overview: `Module: ${m.name}` });
-        if (i < validModules.length - 1) await new Promise(r => setTimeout(r, 2000));
+        if (i < validModules.length - 1) await new Promise(r => setTimeout(r, 4000));
       }
 
+      // Phase 2: Topics with two-stage generation
       const topicDataMap = {};
       const allTopicJobs = validModules.flatMap((m, mi) => m.topics.map((t, ti) => ({ mi, ti, topicName: t, moduleName: m.name })));
       for (let i = 0; i < allTopicJobs.length; i++) {
         const job = allTopicJobs[i];
-        setProgress(`Generating Topics... ${i+1}/${allTopicJobs.length}`);
+        setProgress(`Generating Topic ${i+1}/${allTopicJobs.length}: ${job.topicName}`);
+        
         const query = `${job.topicName} ${job.moduleName}`;
         const relevantChunks = useSemanticSearch ? await hybridSearch(query, documentChunks, 8) : findRelevantChunks(documentChunks, query, 8);
+
         const result = await generateTopicTwoStage(job.topicName, job.moduleName, courseName.trim(), depth, relevantChunks, ["system"], globalImages, speedMode);
         topicDataMap[`${job.mi}-${job.ti}`] = result;
+        if (i < allTopicJobs.length - 1) await new Promise(r => setTimeout(r, 3000));
       }
 
-      const glossaryData = await callGemini("system", buildGlossaryPrompt(courseName.trim(), validModules.flatMap(m => m.topics))) || { terms: [] };
+      // Phase 3: Glossary
+      setProgress("Generating Glossary...");
+      const allTopicNames = validModules.flatMap(m => m.topics);
+      const glossaryData = await callGemini("system", buildGlossaryPrompt(courseName.trim(), allTopicNames)) || { terms: [] };
 
+      // Phase 4: Assemble
+      setProgress("Synthesizing Final Output...");
       const md = assembleMarkdown({ courseName: courseName.trim(), depth, modules: validModules, moduleMetas, topicDataMap, glossaryData });
       setOutput(md);
       setTopicDataMapState(topicDataMap);
       setModuleMetasState(moduleMetas);
       setGlossaryDataState(glossaryData);
+      
       saveToHistory(courseName.trim(), validModules, md, { depth, fileCount: globalFiles.length });
       updateHistoryStats();
-      
+      showToast("✓ Master Document Complete");
+      setTimeout(() => outputRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
     } catch (err) {
       console.error(err);
-      showToast("System error");
+      showToast("System error. Check logs.");
     } finally {
       setLoading(false); setProgress("");
     }
@@ -243,14 +258,14 @@ export default function DashboardPage() {
       const userRef = doc(db, "users", user.uid);
       await updateDoc(userRef, { plan: 'premium', credits_remaining: 100 });
       setShowUpgradeModal(false);
-      showToast("UPGRADED!");
-    } catch (e) { showToast("Sync error"); }
+      showToast("🚀 UPGRADED TO PREMIUM!");
+    } catch (e) { showToast("Upgrade sync error"); }
   };
 
   if (authLoading || !user) return (
     <div className="auth-container">
       <Zap className="animate-spin" size={48} color="var(--accent)" style={{ margin: '0 auto 20px' }} />
-      <div style={{ color: 'var(--accent)', fontWeight: '800', letterSpacing: '2px', fontSize: '12px' }}>INITIALIZING...</div>
+      <div style={{ color: 'var(--accent)', fontWeight: '800', letterSpacing: '2px', fontSize: '12px' }}>INITIALIZING SYSTEM...</div>
     </div>
   );
 
@@ -264,10 +279,10 @@ export default function DashboardPage() {
 
         <div className="hero">
           <h1>Generate <span className="highlight">Master Learning</span> Documents</h1>
-          <p>Instantly export to PDF or Markdown.</p>
+          <p>Instantly export to high-fidelity PDF or Markdown.</p>
           
           {userData?.plan === 'free' && (
-            <button onClick={() => setShowUpgradeModal(true)} className="btn-save-key" style={{ marginTop: 10, borderRadius: '50px' }}>
+            <button onClick={() => setShowUpgradeModal(true)} className="btn-save-key" style={{ marginTop: 10, borderRadius: '50px', background: 'linear-gradient(to right, var(--accent), #F9D976)', color: '#000', fontWeight: '900' }}>
               <Sparkles size={16} style={{ marginRight: 8, verticalAlign: 'middle' }} /> UPGRADE TO PREMIUM
             </button>
           )}
@@ -275,10 +290,10 @@ export default function DashboardPage() {
           <div style={{ maxWidth: 500, margin: '30px auto 0', background: 'rgba(212, 175, 55, 0.05)', border: '1px solid var(--border)', padding: 16, borderRadius: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
             <Share2 size={20} color="var(--accent)" />
             <div style={{ flex: 1, textAlign: 'left' }}>
-              <div style={{ fontSize: 11, fontWeight: 900, color: 'var(--accent)' }}>REFER FRIENDS, EARN CREDITS</div>
+              <div style={{ fontSize: 11, fontWeight: 900, color: 'var(--accent)', letterSpacing: '1px' }}>REFER FRIENDS, EARN CREDITS</div>
               <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>Code: <code style={{ color: 'var(--accent)' }}>{userData?.referral_code}</code></div>
             </div>
-            <button className="btn-save-key" style={{ padding: '8px 16px', fontSize: '10px', borderRadius: '8px' }} onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/signup?ref=${userData.referral_code}`); showToast("Copied!"); }}>COPY LINK</button>
+            <button className="btn-save-key" style={{ padding: '8px 16px', fontSize: '10px', borderRadius: '8px', background: 'var(--accent)', color: '#000' }} onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/signup?ref=${userData.referral_code}`); showToast("Copied!"); }}>COPY LINK</button>
           </div>
         </div>
 
@@ -304,7 +319,7 @@ export default function DashboardPage() {
                 <div className="upload-zone" onClick={() => fileInputRef.current.click()}>
                   <input type="file" ref={fileInputRef} multiple style={{ display: 'none' }} onChange={e => handleGlobalFiles(e.target.files)} />
                   <Upload size={20} color="var(--accent)" />
-                  <div style={{ marginTop: 10, fontSize: 14, fontWeight: 600 }}>Drop files here or browse</div>
+                  <div style={{ marginTop: 10, fontSize: 14, fontWeight: 600 }}>{globalFiles.length > 0 ? `${globalFiles.length} files uploaded` : "Drop files here or browse"}</div>
                 </div>
               </div>
 
@@ -318,7 +333,7 @@ export default function DashboardPage() {
                 <button type="button" className="btn-add" style={{ marginTop: 16 }} onClick={addModule}><Plus size={14} /> Add Module</button>
               </div>
 
-              <button type="submit" className="btn-generate" disabled={loading}>
+              <button type="submit" className="btn-generate" disabled={loading} style={{ background: 'var(--accent)', color: '#000', fontWeight: '900' }}>
                 {loading ? progress || "GENERATING..." : "GENERATE MASTER DOCUMENT"}
               </button>
             </form>
