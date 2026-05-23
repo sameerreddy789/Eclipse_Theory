@@ -1,15 +1,40 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
-import { Zap, Shield, Rocket, Users, BookOpen, Star, ArrowRight, CheckCircle2, Mail, Linkedin, ChevronDown, Award } from "lucide-react";
+import { Zap, Shield, Rocket, Users, BookOpen, Star, ArrowRight, CheckCircle2, Mail, Linkedin, ChevronDown, Award, Send, MessageSquare } from "lucide-react";
 import "./globals.css";
 import { useAuth } from "./lib/auth";
+import { db } from "./lib/firebase";
+import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 
 export default function LandingPage() {
   const { user, loading } = useAuth();
+  const [feedback, setFeedback] = useState({ name: "", role: "", text: "", rating: 5 });
+  const [submitting, setSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
 
   const ctaLink = user ? "/dashboard" : "/signup";
   const ctaLabel = user ? "GO TO DASHBOARD" : "GET STARTED";
+
+  const handleFeedbackSubmit = async (e) => {
+    e.preventDefault();
+    if (!feedback.text || !feedback.name) return;
+    setSubmitting(true);
+    try {
+      await addDoc(collection(db, "testimonials"), {
+        ...feedback,
+        timestamp: serverTimestamp(),
+        approved: false // Admin can moderate later
+      });
+      setSubmitted(true);
+      setFeedback({ name: "", role: "", text: "", rating: 5 });
+    } catch (err) {
+      console.error("Feedback failed:", err);
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   return (
     <div className="landing-page">
@@ -116,20 +141,21 @@ export default function LandingPage() {
       </section>
 
       {/* Moving Testimonials Section */}
-      <section style={{ padding: '80px 0', background: 'rgba(212, 175, 55, 0.02)', borderTop: '1px solid var(--border)', overflow: 'hidden' }}>
+      <section style={{ padding: '100px 0 60px', background: 'rgba(212, 175, 55, 0.02)', borderTop: '1px solid var(--border)', overflow: 'hidden' }}>
         <div className="hero" style={{ padding: '0 0 40px' }}>
-          <h2 style={{ fontSize: '32px', fontWeight: '900', color: 'var(--accent)', marginBottom: '16px' }}>TRUSTED BY SCHOLARS</h2>
+          <h2 style={{ fontSize: '32px', fontWeight: '900', color: 'var(--accent)', marginBottom: '16px' }}>THE ARCHITECT'S CHOICE</h2>
+          <p style={{ color: 'var(--text-muted)', fontSize: '15px' }}>Trusted by elite students and researchers worldwide.</p>
         </div>
         
         <style dangerouslySetInnerHTML={{ __html: `
           @keyframes scroll {
             0% { transform: translateX(0); }
-            100% { transform: translateX(calc(-350px * 5)); }
+            100% { transform: translateX(calc(-350px * 10)); }
           }
           .testimonial-track {
             display: flex;
-            width: calc(350px * 10);
-            animation: scroll 40s linear infinite;
+            width: calc(350px * 20);
+            animation: scroll 60s linear infinite;
             gap: 20px;
             padding: 20px 0;
           }
@@ -140,17 +166,27 @@ export default function LandingPage() {
 
         <div className="testimonial-track">
           {[
-            { name: "Arjun Reddy", role: "Medical Student", text: "Turned 500 pages of anatomy notes into a 20-page master guide. Lifecycle saver." },
-            { name: "Sarah Jenkins", role: "Full-stack Developer", text: "The Mermaid diagram generation is scarily accurate. Worth every penny." },
-            { name: "Dr. Elena Rossi", role: "Research Fellow", text: "Finally an AI that understands technical context. The vector synthesis is brilliant." },
-            { name: "James Chen", role: "MBA Candidate", text: "I use it for case study synthesis. What used to take hours now takes seconds." },
-            { name: "Priya Sharma", role: "Law Student", text: "The OCR handled my messy lecture notes perfectly. Simply the best study tool." },
-            // Duplicate for infinite loop effect
-            { name: "Arjun Reddy", role: "Medical Student", text: "Turned 500 pages of anatomy notes into a 20-page master guide. Lifecycle saver." },
-            { name: "Sarah Jenkins", role: "Full-stack Developer", text: "The Mermaid diagram generation is scarily accurate. Worth every penny." },
-            { name: "Dr. Elena Rossi", role: "Research Fellow", text: "Finally an AI that understands technical context. The vector synthesis is brilliant." },
-            { name: "James Chen", role: "MBA Candidate", text: "I use it for case study synthesis. What used to take hours now takes seconds." },
-            { name: "Priya Sharma", role: "Law Student", text: "The OCR handled my messy lecture notes perfectly. Simply the best study tool." }
+            { name: "Arjun Reddy", role: "Medical Student", text: "Turned 500 pages of anatomy notes into a 20-page master guide. A game changer." },
+            { name: "Sarah J.", role: "Full-stack Dev", text: "The Mermaid diagram generation is scarily accurate. Worth every penny." },
+            { name: "Dr. James Miller", role: "Researcher", text: "The semantic search is a paradigm shift for literature reviews." },
+            { name: "Elena V.", role: "Law Student", text: "Legal case synthesis used to take me days. Now it's a matter of minutes." },
+            { name: "Mark Thompson", role: "CS Student", text: "OCR is flawless even with my terrible handwriting. 10/10." },
+            { name: "Aisha Khan", role: "Biology Major", text: "Finally an AI that doesn't hallucinate technical diagrams." },
+            { name: "Prof. Robert Chen", role: "Educator", text: "I recommend this to all my students for structured exam prep." },
+            { name: "Linda G.", role: "UX Designer", text: "The UI is clean and the gold theme feels truly premium." },
+            { name: "Kevin S.", role: "Data Scientist", text: "Vector synthesis at its finest. The chunking logic is perfect." },
+            { name: "Maria Garcia", role: "Philosophy Student", text: "It captures the essence of complex arguments beautifully." },
+            // Loop Duplicates
+            { name: "Arjun Reddy", role: "Medical Student", text: "Turned 500 pages of anatomy notes into a 20-page master guide. A game changer." },
+            { name: "Sarah J.", role: "Full-stack Dev", text: "The Mermaid diagram generation is scarily accurate. Worth every penny." },
+            { name: "Dr. James Miller", role: "Researcher", text: "The semantic search is a paradigm shift for literature reviews." },
+            { name: "Elena V.", role: "Law Student", text: "Legal case synthesis used to take me days. Now it's a matter of minutes." },
+            { name: "Mark Thompson", role: "CS Student", text: "OCR is flawless even with my terrible handwriting. 10/10." },
+            { name: "Aisha Khan", role: "Biology Major", text: "Finally an AI that doesn't hallucinate technical diagrams." },
+            { name: "Prof. Robert Chen", role: "Educator", text: "I recommend this to all my students for structured exam prep." },
+            { name: "Linda G.", role: "UX Designer", text: "The UI is clean and the gold theme feels truly premium." },
+            { name: "Kevin S.", role: "Data Scientist", text: "Vector synthesis at its finest. The chunking logic is perfect." },
+            { name: "Maria Garcia", role: "Philosophy Student", text: "It captures the essence of complex arguments beautifully." }
           ].map((t, i) => (
             <div key={i} style={{ width: '330px', flexShrink: 0, padding: '30px', background: 'var(--bg-subtle)', borderRadius: '20px', border: '1px solid var(--border)', boxShadow: '0 10px 30px rgba(0,0,0,0.1)' }}>
               <div style={{ display: 'flex', gap: 4, marginBottom: '16px' }}>
@@ -161,6 +197,71 @@ export default function LandingPage() {
               <div style={{ fontSize: '11px', color: 'var(--text-dim)' }}>{t.role}</div>
             </div>
           ))}
+        </div>
+      </section>
+
+      {/* Share Experience Form */}
+      <section style={{ padding: '60px 24px 100px', background: 'rgba(212, 175, 55, 0.01)', textAlign: 'center' }}>
+        <div style={{ maxWidth: '600px', margin: '0 auto', background: 'var(--bg-subtle)', padding: '40px', borderRadius: '24px', border: '1px solid var(--border)' }}>
+          <div style={{ marginBottom: '30px' }}>
+            <MessageSquare size={32} color="var(--accent)" style={{ margin: '0 auto 16px' }} />
+            <h2 style={{ fontSize: '28px', fontWeight: '900', color: 'var(--accent)', marginBottom: '8px' }}>RATE YOUR EXPERIENCE</h2>
+            <p style={{ color: 'var(--text-muted)', fontSize: '14px' }}>Help us refine the future of scholarly AI.</p>
+          </div>
+
+          {submitted ? (
+            <div style={{ padding: '40px 0' }}>
+              <CheckCircle2 size={48} color="var(--accent)" style={{ margin: '0 auto 20px' }} />
+              <h3 style={{ color: 'var(--text)', fontWeight: '800' }}>THANK YOU!</h3>
+              <p style={{ color: 'var(--text-muted)', fontSize: '14px', marginTop: '8px' }}>Your feedback has been sent to our architects.</p>
+              <button onClick={() => setSubmitted(false)} style={{ marginTop: '24px', background: 'none', border: '1px solid var(--accent)', color: 'var(--accent)', padding: '8px 20px', borderRadius: '8px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}>Submit Another</button>
+            </div>
+          ) : (
+            <form onSubmit={handleFeedbackSubmit} style={{ textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+                <div>
+                  <label style={{ fontSize: '11px', fontWeight: '800', color: 'var(--text-dim)', marginBottom: '6px', textTransform: 'uppercase' }}>Your Name</label>
+                  <input 
+                    type="text" required value={feedback.name} onChange={e => setFeedback({...feedback, name: e.target.value})}
+                    style={{ background: 'var(--bg-input)', border: '1px solid var(--border)', padding: '12px', borderRadius: '10px', width: '100%', color: 'var(--text)' }}
+                    placeholder="e.g. John Doe"
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: '11px', fontWeight: '800', color: 'var(--text-dim)', marginBottom: '6px', textTransform: 'uppercase' }}>Your Role</label>
+                  <input 
+                    type="text" value={feedback.role} onChange={e => setFeedback({...feedback, role: e.target.value})}
+                    style={{ background: 'var(--bg-input)', border: '1px solid var(--border)', padding: '12px', borderRadius: '10px', width: '100%', color: 'var(--text)' }}
+                    placeholder="e.g. Student"
+                  />
+                </div>
+              </div>
+              <div>
+                <label style={{ fontSize: '11px', fontWeight: '800', color: 'var(--text-dim)', marginBottom: '6px', textTransform: 'uppercase' }}>Rating</label>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  {[1,2,3,4,5].map(star => (
+                    <button key={star} type="button" onClick={() => setFeedback({...feedback, rating: star})} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+                      <Star size={24} fill={feedback.rating >= star ? "var(--accent)" : "none"} color="var(--accent)" />
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label style={{ fontSize: '11px', fontWeight: '800', color: 'var(--text-dim)', marginBottom: '6px', textTransform: 'uppercase' }}>Your Testimony</label>
+                <textarea 
+                  required value={feedback.text} onChange={e => setFeedback({...feedback, text: e.target.value})}
+                  style={{ background: 'var(--bg-input)', border: '1px solid var(--border)', padding: '12px', borderRadius: '10px', width: '100%', minHeight: '100px', color: 'var(--text)', resize: 'none' }}
+                  placeholder="Tell the world how Eclipse Theory changed your learning..."
+                />
+              </div>
+              <button 
+                type="submit" disabled={submitting}
+                style={{ background: 'var(--accent)', color: '#000', border: 'none', padding: '16px', borderRadius: '12px', fontWeight: '900', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }}
+              >
+                {submitting ? "SUBMITTING..." : <>SHARE EXPERIENCE <Send size={16} /></>}
+              </button>
+            </form>
+          )}
         </div>
       </section>
 
