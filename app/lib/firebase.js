@@ -1,4 +1,4 @@
-import { initializeApp, getApps } from "firebase/app";
+import { initializeApp, getApps, deleteApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 
@@ -11,20 +11,16 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID
 };
 
-// Initialize Firebase only if the API key is present
+// Initialize Firebase only if the API key is a valid non-empty string
 let app;
+const isValidConfig = firebaseConfig.apiKey && firebaseConfig.apiKey !== "undefined" && firebaseConfig.apiKey.length > 10;
 
-console.log("[Firebase] Initializing with Project ID:", process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID);
-
-if (process.env.NEXT_PUBLIC_FIREBASE_API_KEY) {
+if (isValidConfig) {
   try {
     app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
-    console.log("[Firebase] Initialization successful");
   } catch (error) {
-    console.error("[Firebase] Initialization failed:", error);
+    console.error("[Firebase] Initialization error:", error);
   }
-} else {
-  console.warn("[Firebase] Missing NEXT_PUBLIC_FIREBASE_API_KEY. Initialization skipped.");
 }
 
 export const auth = app ? getAuth(app) : null;

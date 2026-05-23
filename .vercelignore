@@ -1,0 +1,7 @@
+stealth-scraper/
+venv/
+.env
+.env.local
+node_modules/
+*.pyc
+__pycache__/
