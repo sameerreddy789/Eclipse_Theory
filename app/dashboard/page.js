@@ -48,7 +48,7 @@ let nextModuleId = 1000;
 let nextTopicId = 5000;
 
 export default function DashboardPage() {
-  const { user, userData, authLoading, logout } = useAuth();
+  const { user, userData, loading: authLoading, logout } = useAuth();
   const router = useRouter();
 
   // Redirect if not logged in
@@ -61,7 +61,6 @@ export default function DashboardPage() {
   // State
   const [output, setOutput] = useState("");
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
-
   const [topicDataMapState, setTopicDataMapState] = useState({});
   const [moduleMetasState, setModuleMetasState] = useState([]);
   const [glossaryDataState, setGlossaryDataState] = useState({ terms: [] });
@@ -153,15 +152,82 @@ export default function DashboardPage() {
         setLoading(false); return;
       }
 
-      // Generation Logic (Simplified for this rewrite)
-      setProgress("Processing Knowledge...");
-      
-      const md = "# " + courseName + "\n\nPlaceholder content for generated document.";
+      // Generation Logic
+      let documentChunks = [];
+      let documentHashes = [];
+      let globalImages = [];
+
+      if (globalFiles.length > 0) {
+        setProgress(`Processing material...`);
+        const filesToProcess = [];
+        for (const file of globalFiles) {
+          if (useOCR && isImageFile(file)) {
+            const ocrResult = await extractTextFromImage(file, (p) => setProgress(`OCR: ${file.name} (${p}%)`));
+            if (ocrResult.success && ocrResult.text.length > 50) {
+              filesToProcess.push({ ...file, ocrText: ocrResult.text });
+            } else filesToProcess.push(file);
+          } else filesToProcess.push(file);
+        }
+        
+        const { processedFiles, images } = await processFiles(filesToProcess);
+        globalImages = images;
+
+        for (const file of globalFiles) {
+          const cached = await getCachedDocumentChunks(file);
+          if (cached) {
+            documentChunks.push(...cached.chunks);
+            documentHashes.push(cached.hash);
+          } else {
+            const fileData = processedFiles.find(pf => pf.fileName === file.name);
+            if (fileData) {
+              const chunks = chunkDocuments([fileData]);
+              const hash = await cacheDocumentChunks(file, chunks);
+              documentChunks.push(...chunks);
+              if (hash) documentHashes.push(hash);
+            }
+          }
+        }
+        
+        if (useSemanticSearch && documentChunks.length > 0) {
+          documentChunks = await generateChunkEmbeddings(documentChunks, (c, t) => setProgress(`Syncing... ${c}/${t}`));
+        }
+      }
+
+      setProgress(`Architecting Knowledge...`);
+      const analyzerKey = "system";
+      const moduleMetas = [];
+      for (let i = 0; i < validModules.length; i++) {
+        const m = validModules[i];
+        const relevantChunks = findRelevantChunks(documentChunks, m.name, 5);
+        const context = relevantChunks.map(c => `[${c.metadata.fileName}]\n${c.text}`).join("\n\n");
+        const meta = await callGemini(analyzerKey, buildModulePrompt(m.name, m.topics, courseName.trim(), context), globalImages);
+        moduleMetas.push(meta || { overview: `Module: ${m.name}` });
+        if (i < validModules.length - 1) await new Promise(r => setTimeout(r, 2000));
+      }
+
+      const topicDataMap = {};
+      const allTopicJobs = validModules.flatMap((m, mi) => m.topics.map((t, ti) => ({ mi, ti, topicName: t, moduleName: m.name })));
+      for (let i = 0; i < allTopicJobs.length; i++) {
+        const job = allTopicJobs[i];
+        setProgress(`Generating Topics... ${i+1}/${allTopicJobs.length}`);
+        const query = `${job.topicName} ${job.moduleName}`;
+        const relevantChunks = useSemanticSearch ? await hybridSearch(query, documentChunks, 8) : findRelevantChunks(documentChunks, query, 8);
+        const result = await generateTopicTwoStage(job.topicName, job.moduleName, courseName.trim(), depth, relevantChunks, ["system"], globalImages, speedMode);
+        topicDataMap[`${job.mi}-${job.ti}`] = result;
+      }
+
+      const glossaryData = await callGemini("system", buildGlossaryPrompt(courseName.trim(), validModules.flatMap(m => m.topics))) || { terms: [] };
+
+      const md = assembleMarkdown({ courseName: courseName.trim(), depth, modules: validModules, moduleMetas, topicDataMap, glossaryData });
       setOutput(md);
+      setTopicDataMapState(topicDataMap);
+      setModuleMetasState(moduleMetas);
+      setGlossaryDataState(glossaryData);
       saveToHistory(courseName.trim(), validModules, md, { depth, fileCount: globalFiles.length });
       updateHistoryStats();
       
     } catch (err) {
+      console.error(err);
       showToast("System error");
     } finally {
       setLoading(false); setProgress("");
